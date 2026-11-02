@@ -1,6 +1,6 @@
 
 import * as THREE from 'three';
-import { makePerson } from './characters.js';
+import { hasReal, makePerson } from './characters.js';
 
 // ------------------------------------------------------------------------------------------
 // Character Creator: the player's look, saved in localStorage ('sr_avatar') and used in-game.
@@ -9,11 +9,12 @@ export const COLORS = [0xf4f4f0, 0x111111, 0x1e4fa8, 0x0d2a5c, 0xb3261e, 0x7b102
 const DENIM = [0x1b3a6b, 0x2b4f86, 0x1a2433, 0x2b2b2b, 0x3e4a5a, 0x5d4037, 0xc8b89a, 0xf4f4f0, 0x37474f, 0x6d4c41, 0x7b1020, 0x2e7d32];
 const HAIRC = [0x0d0b0a, 0x1c140e, 0x3b2516, 0x6b3a1e, 0x8a2b18, 0xb08850, 0xe0c27a, 0x8f8f8f, 0xe8e8e8, 0x3f51b5, 0x7b1fa2, 0xc2185b];
 const EYEC = [0x5a3a22, 0x2a1a10, 0x8a6a2e, 0x4c7a3a, 0x6d8aa0];
-export const DEFAULT_AVATAR = { v: 1, female: false, build: 1, height: 1, skinTone: 3, face: 0, eye: 0, hair: 'parted', hairColor: 0x1c140e, beard: 'stubble',
+export const DEFAULT_AVATAR = { v: 1, model: 'man', female: false, build: 1, height: 1, skinTone: 3, face: 0, eye: 0, hair: 'parted', hairColor: 0x1c140e, beard: 'stubble',
   top: 'tshirt', topColor: 0xf4f4f0, top2: 0x1e4fa8, pattern: 'plain', bottom: 'jeans', bottomColor: 0x1b3a6b, shoeColor: 0x111111, cap: 'none', capColor: 0xb3261e, glasses: 'none', watch: 'none' };
 export function loadAvatar() { try { const a = JSON.parse(localStorage.getItem('sr_avatar') || 'null'); if (a && a.v === 1) return Object.assign({}, DEFAULT_AVATAR, a); } catch (e) {} return Object.assign({}, DEFAULT_AVATAR); }
 export function saveAvatar(a) { try { localStorage.setItem('sr_avatar', JSON.stringify(a)); } catch (e) {} }
 export function avatarPerson(a) {
+  if (a.model && a.model !== 'custom' && hasReal(a.model)) return makePerson({ real: a.model, build: a.build, height: a.height });
   return makePerson({ female: a.female, build: a.build, height: a.height, skinTone: a.skinTone, brows: [0, 1, 2, 3, 0][a.face] ?? 0, eyeColor: EYEC[a.eye] ?? EYEC[0],
     hair: a.hair, hairColor: a.hairColor, beardStyle: a.beard, top: a.top, shirt: a.topColor, shirt2: a.top2, pattern: a.pattern, longSleeve: a.top !== 'tshirt' && a.top !== 'vest',
     bottom: a.bottom, pants: a.bottom === 'pajama' && a.top === 'kurta' ? a.bottomColor : a.bottomColor, shoes: a.shoeColor, cap: a.cap, capColor: a.capColor, glasses: a.glasses, watch: a.watch === 'none' ? null : a.watch });
@@ -22,11 +23,14 @@ const hex = (c) => '#' + c.toString(16).padStart(6, '0');
 const SKIN_CSS = ['#f1d3b8', '#e2bb98', '#cfa27c', '#bd8e68', '#a8775a', '#8c5e45', '#6f4935', '#57392a'];
 
 const TABS = [
-  ['body', '🧍 Body'], ['face', '🙂 Face'], ['hair', '💇 Baal'], ['top', '👕 Upar'], ['bottom', '👖 Neeche'], ['shoes', '👟 Joote'], ['extra', '🧢 Extras'],
+  ['hero', '⭐ Hero'], ['body', '🧍 Body'], ['face', '🙂 Face'], ['hair', '💇 Baal'], ['top', '👕 Upar'], ['bottom', '👖 Neeche'], ['shoes', '👟 Joote'], ['extra', '🧢 Extras'],
 ];
 function rows(a) {
   const male = !a.female;
   return {
+    hero: [
+      ['Hero chuno', 'seg', 'model', [['man', 'Raja (jacket)'], ['woman', 'Rani'], ['businessman', 'Seth ji'], ['farmer', 'Kisan'], ['custom', 'Custom (khud banao)']]],
+    ],
     body: [
       ['Gender', 'seg', 'female', [[false, 'Ladka'], [true, 'Ladki']]],
       ['Body', 'seg', 'build', [[0, 'Patla'], [1, 'Normal'], [2, 'Strong'], [3, 'Bhaari']]],
@@ -61,10 +65,10 @@ function rows(a) {
     ],
   };
 }
-function randomAvatar() {
+export function randomAvatar() {
   const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const female = Math.random() < 0.5;
-  return Object.assign({}, DEFAULT_AVATAR, { female, build: r([0, 1, 1, 2, 3]), height: r([0.94, 1, 1, 1.06]), skinTone: Math.floor(Math.random() * 8), face: Math.floor(Math.random() * 5), eye: Math.floor(Math.random() * 5),
+  return Object.assign({}, DEFAULT_AVATAR, { model: Math.random() < 0.7 ? r(['man', 'woman', 'businessman', 'farmer']) : 'custom', female, build: r([0, 1, 1, 2, 3]), height: r([0.94, 1, 1, 1.06]), skinTone: Math.floor(Math.random() * 8), face: Math.floor(Math.random() * 5), eye: Math.floor(Math.random() * 5),
     hair: female ? r(['long', 'buns', 'ponytail', 'pixie']) : r(['parted', 'buzz', 'pixie', 'parted', 'bald']), hairColor: r(HAIRC.slice(0, 8)), beard: female ? 'none' : r(['none', 'stubble', 'moustache', 'full', 'fullm']),
     top: r(['tshirt', 'shirt', 'kurta', 'jacket', 'vest']), topColor: r(COLORS), top2: r(COLORS), pattern: r(['plain', 'plain', 'stripes', 'checks']), bottom: r(['jeans', 'trousers', 'shorts', 'pajama']), bottomColor: r(DENIM),
     shoeColor: r([0x111111, 0xf4f4f0, 0x5d4037]), cap: r(['none', 'none', 'cap', 'topi', 'turban']), capColor: r(COLORS), glasses: r(['none', 'none', 'specs', 'gold', 'shades']), watch: r(['none', 'black', 'gold']) });
@@ -86,12 +90,12 @@ export class Creator {
   }
   open(opts = {}) {
     this.scene.environment = this.mainScene ? this.mainScene.environment : null;
-    this.a = loadAvatar(); this.orig = JSON.stringify(this.a); this.onDone = opts.onDone; this.tab = 'body'; this.active = true; this.title = opts.title || 'CHARACTER BANAO';
+    this.a = loadAvatar(); this.orig = JSON.stringify(this.a); this.onDone = opts.onDone; this.tab = 'hero'; this.active = true; this.title = opts.title || 'CHARACTER BANAO';
     const d = this.el = document.createElement('div'); d.className = 'creator';
     d.innerHTML = `<div class="cr-drag"></div><div class="cr-panel"><div class="cr-title">${this.title}</div><div class="cr-tabs"></div><div class="cr-rows"></div>
       <div class="cr-bar"><button data-c="rand">🎲 Random</button><button data-c="cancel">✖ Wapas</button><button data-c="save" class="ok">✔ Save</button></div></div><div class="cr-hint">⟲ ghumane ke liye drag karo</div>`;
     this.ui.appendChild(d);
-    d.querySelector('[data-c=rand]').onclick = () => { this.a = randomAvatar(); this.rebuild(); this.renderRows(); };
+    d.querySelector('[data-c=rand]').onclick = () => { this.a = randomAvatar(); this.rebuild(); this.renderTabs(); this.renderRows(); };
     d.querySelector('[data-c=cancel]').onclick = () => this.close(false);
     d.querySelector('[data-c=save]').onclick = () => this.close(true);
     const drag = d.querySelector('.cr-drag'); let px = null, py = null;
@@ -102,7 +106,7 @@ export class Creator {
     this.renderTabs(); this.renderRows(); this.rebuild(); document.body.classList.add('creating');
   }
   renderTabs() {
-    const t = this.el.querySelector('.cr-tabs'); t.innerHTML = TABS.map(([k, n]) => `<button data-t="${k}" class="${k === this.tab ? 'sel' : ''}">${n}</button>`).join('');
+    const t = this.el.querySelector('.cr-tabs'); const realM = this.a.model && this.a.model !== 'custom'; if (realM && !['hero', 'body'].includes(this.tab)) this.tab = 'hero'; t.innerHTML = TABS.filter(([k]) => !realM || k === 'hero' || k === 'body').map(([k, n]) => `<button data-t="${k}" class="${k === this.tab ? 'sel' : ''}">${n}</button>`).join('');
     t.querySelectorAll('button').forEach(b => b.onclick = () => { this.tab = b.dataset.t; this.renderTabs(); this.renderRows(); if (b.dataset.t === 'face' || b.dataset.t === 'hair' || b.dataset.t === 'extra') this.zoom = 1; else if (b.dataset.t === 'shoes' || b.dataset.t === 'bottom' || b.dataset.t === 'body') this.zoom = 0; });
   }
   renderRows() {
@@ -112,7 +116,8 @@ export class Creator {
       : `<button data-r="${ri}" data-o="${oi}" class="${this.a[key] === v ? 'sel' : ''}" style="background:${txt}"></button>`).join('')}</div></div>`).join('');
     box.querySelectorAll('button').forEach(b => b.onclick = () => { const [, , key, opts] = R[+b.dataset.r]; this.a[key] = opts[+b.dataset.o][0];
       if (key === 'female') { this.a.hair = this.a.female ? 'long' : 'parted'; this.a.beard = this.a.female ? 'none' : 'stubble'; }
-      this.rebuild(); this.renderRows(); });
+      if (key === 'model') { if (this.a.model === 'woman') this.a.female = true; else if (this.a.model !== 'custom') this.a.female = false; }
+      this.rebuild(); this.renderTabs(); this.renderRows(); });
   }
   rebuild() {
     if (this.p) this.p.dispose();
