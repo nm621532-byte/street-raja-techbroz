@@ -30,11 +30,12 @@ export function loadTex(url, srgb = false, repeat = null) {
 }
 
 // Poly Haven style PBR set: diff (sRGB), nor (GL), arm (AO/rough/metal)
-export function pbr(id, res, opts = {}) {
-  const rep = opts.repeat || 1;
+const HI4K = new Set(['clean_asphalt', 'interlocking_concrete_pavers']); // Ultra: 4K colour + normal on the road and pavement (the surfaces you see most)
+export function pbr(id, res0, opts = {}) {
+  const rep = opts.repeat || 1; const res = Math.min(res0, 2048); const hres = res0 > 2048 && HI4K.has(id) ? 4096 : res;
   const m = new (opts.physical ? THREE.MeshPhysicalMaterial : THREE.MeshStandardMaterial)({
-    map: loadTex(`tex/${id}/diff_${res}.jpg`, true, rep),
-    normalMap: loadTex(`tex/${id}/nor_${res}.jpg`, false, rep),
+    map: loadTex(`tex/${id}/diff_${hres}.jpg`, true, rep),
+    normalMap: loadTex(`tex/${id}/nor_${hres}.jpg`, false, rep),
     roughnessMap: loadTex(`tex/${id}/arm_${res}.jpg`, false, rep),
     aoMap: opts.ao === false ? null : loadTex(`tex/${id}/arm_${res}.jpg`, false, rep),
     metalness: 0, roughness: opts.roughness ?? 1,
