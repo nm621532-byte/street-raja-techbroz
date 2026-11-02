@@ -6,11 +6,71 @@ import { loadGLTF } from './assets.js';
 import { SPECS, buildCar } from './carmodels.js';
 export const CAR_TYPES = {};
 for (const [k, s] of Object.entries(SPECS)) CAR_TYPES[k] = { len: s.L, mass: s.mass, power: s.power, top: s.top, grip: s.grip, paint: !s.paint && !s.twoTone, kind: s.kind };
+CAR_TYPES.scooter = { len: 1.9, mass: 160, power: 4.2, top: 17, grip: 7.5, paint: false, kind: 'bike' }; CAR_TYPES.bike = { len: 2.1, mass: 190, power: 6.0, top: 24, grip: 8, paint: false, kind: 'bike' };
 CAR_TYPES.truck = CAR_TYPES.van; CAR_TYPES.delivery = CAR_TYPES.van; CAR_TYPES.suvlux = CAR_TYPES.suv;
 const ALIAS = { truck: 'van', delivery: 'van', suvlux: 'suv' };
 const models = {};
+// ---------- Detailed CC0 glTF cars (Grab3D, CC0) with recolourable paint ----------
+const GLB_CARS = { sedan: '1990s-sedan', hatch: '1990s-hatchback', suv: 'suv', taxi: '1990s-taxi', police: '1990s-police-car', van: 'delivery-van', ambulance: 'ambulance', auto: 'tuk-tuk', sports: 'compact-car', scooter: 'scooter', bike: 'motorcycle' };
+const BASE_LUM = {"1990s-sedan": 0.2453, "1990s-hatchback": 0.3925, "suv": 0.4286, "1990s-taxi": 0.4647, "delivery-van": 0.5718, "tuk-tuk": 0.6874, "compact-car": 0.4745, "minibus": 0.4817};
+const CAR_PAINTS = [0xb7b9bc, 0xe9e9e6, 0x15171a, 0x8e1018, 0x1c3a78, 0x5a5f66, 0xd8d4c8, 0x6b1f24, 0x2d4f3b, 0x9a7b4f, 0x2a6fb0, 0xc8102e];
+const AUTO_PAINTS = [0x1f7a2e, 0x1f7a2e, 0xf2c418, 0x111111];
+function paintShader(mat, mask, baseLum, Q) {
+  const m = Q.cars === 'physical' ? new THREE.MeshPhysicalMaterial({ map: mat.map, normalMap: mat.normalMap, roughnessMap: mat.roughnessMap, metalnessMap: mat.metalnessMap, roughness: 1, metalness: 1, clearcoat: 0.0, envMapIntensity: 1.4 })
+                                   : new THREE.MeshStandardMaterial({ map: mat.map, normalMap: mat.normalMap, roughnessMap: mat.roughnessMap, metalnessMap: mat.metalnessMap, roughness: 1, metalness: 1, envMapIntensity: 1.3 });
+  m.userData.uPaint = { value: new THREE.Color(0xb7b9bc) };
+  if (!mask) return m;
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uMask = { value: mask }; sh.uniforms.uPaint = m.userData.uPaint; sh.uniforms.uBaseLum = { value: baseLum };
+    sh.fragmentShader = 'uniform sampler2D uMask; uniform vec3 uPaint; uniform float uBaseLum;\n' + sh.fragmentShader
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        #ifdef USE_INSTANCING_COLOR
+          vec3 pcol = vColor; diffuseColor.rgb /= max(vColor, vec3(0.001));
+        #else
+          vec3 pcol = uPaint;
+        #endif
+        float pm = smoothstep(0.35, 0.65, texture2D(uMask, vMapUv).r);
+        float lumT = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        diffuseColor.rgb = mix(diffuseColor.rgb, pcol * clamp(lumT / uBaseLum, 0.3, 1.12), pm);`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n roughnessFactor = mix(roughnessFactor, 0.36, pm);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n metalnessFactor = mix(metalnessFactor, 0.18, pm);')
+      .replace('#include <clearcoat_fragment>', '#include <clearcoat_fragment>\n #ifdef USE_CLEARCOAT\n material.clearcoat = pm; material.clearcoatRoughness = 0.06;\n #endif');
+  };
+  m.customProgramCacheKey = () => 'carpaint' + Q.cars;
+  if (Q.cars === 'physical') m.clearcoat = 0.0001; // enable USE_CLEARCOAT path; real value set per-pixel above
+  return m;
+}
+async function loadGlbCars(Q) {
+  const dir = Q.id === 'low' ? 'models/cars/512/' : (Q.id === 'medium' ? 'models/cars/1024/' : 'models/cars/');
+  const glass = new THREE.MeshStandardMaterial({ color: 0x0b1116, roughness: 0.05, metalness: 0.6, envMapIntensity: 1.6 });
+  await Promise.all(Object.entries(GLB_CARS).map(async ([type, file]) => {
+    try {
+      const g = await loadGLTF(dir + file + '.glb');
+      let mask = null; if (BASE_LUM[file] != null) { mask = await new Promise(r => new THREE.TextureLoader().load((import.meta.env.BASE_URL || './') + 'assets/models/cars/' + file + '_mask.png', t => { t.flipY = false; t.colorSpace = THREE.NoColorSpace; r(t); }, undefined, () => r(null))); }
+      const scene = g.scene; let bodyMat = null;
+      scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true;
+        if (/body_pbr/.test(o.material.name)) { if (!bodyMat) bodyMat = paintShader(o.material, mask, BASE_LUM[file] || 0.5, Q); o.material = bodyMat; }
+        else if (/glass/.test(o.material.name)) o.material = glass; } });
+      const bb = new THREE.Box3().setFromObject(scene);
+      let lod = null; try { lod = (await loadGLTF(dir + file + '_lod.glb')).scene; lod.traverse(o => { if (o.isMesh) { if (/body_pbr/.test(o.material.name)) o.material = bodyMat; else if (/glass/.test(o.material.name)) o.material = glass; } }); } catch (e) {}
+      let far = null; try { far = (await loadGLTF(dir + file + '_far.glb')).scene; far.traverse(o => { if (o.isMesh) { o.castShadow = false; if (/body_pbr/.test(o.material.name)) o.material = bodyMat; else if (/glass/.test(o.material.name)) o.material = glass; } }); } catch (e) {}
+      models.glb = models.glb || {}; models.glb[type] = { scene, lod, far, bodyMat, len: bb.max.z - bb.min.z, wid: bb.max.x - bb.min.x, top: bb.max.y };
+    } catch (e) { console.warn('car glb failed', type, e); }
+  }));
+}
+function buildGlbCar(type, paint, useLod = false) {
+  const M = models.glb[type]; const src = useLod === 'far' ? (M.far || M.lod || M.scene) : (useLod && M.lod ? M.lod : M.scene); const root = src.clone(true);
+  const pm = M.bodyMat.clone(); pm.userData.uPaint = { value: new THREE.Color(paint) }; pm.onBeforeCompile = M.bodyMat.onBeforeCompile; pm.customProgramCacheKey = M.bodyMat.customProgramCacheKey;
+  // the clone shares onBeforeCompile; give it its own paint uniform
+  const ob = M.bodyMat.onBeforeCompile; pm.onBeforeCompile = (sh, r) => { ob(sh, r); sh.uniforms.uPaint = pm.userData.uPaint; };
+  root.traverse(o => { if (o.isMesh && o.material === M.bodyMat) o.material = pm;
+    const mm = /^(scooter|motorcycle|moped)_/.test(o.name) ? null : /_wheel_(f|fl|fr|rl|rr)$/.exec(o.name); if (mm) { o.name = 'wheel_' + (mm[1][0] === 'f' ? 'front_' : 'rear_') + mm[1]; o.rotation.order = 'YXZ'; } });
+  root.userData.paintMat = pm; return root;
+}
+
 export async function loadCars(Q) {
   models.auto = makeAutoRickshaw(Q);
+  await loadGlbCars(Q);
   CAR_TYPES.auto = { file: null, len: 2.9, mass: 380, power: 5.5, top: 21, grip: 7, paint: false, kind: 'auto' };
 }
 function carMaterial(orig, paint, bodyColor, Q, isPolice) {
@@ -30,14 +90,35 @@ function carMaterial(orig, paint, bodyColor, Q, isPolice) {
 }
 
 const tmpV = new THREE.Vector3();
+let riderFactory = null; export function setRiderFactory(f) { riderFactory = f; }
 export class Vehicle {
   constructor(scene, typeKey, Q, opts = {}) {
     const T = CAR_TYPES[typeKey]; this.type = typeKey; this.T = T; this.Q = Q;
     typeKey = ALIAS[typeKey] || typeKey; this.type = typeKey;
-    if (typeKey === 'auto') { const mdl = models.auto; this.root = mdl.wrap.clone(true); this.length = 2.9; this.width = 1.42; }
+    const G = models.glb && models.glb[typeKey];
+    if (G) {
+      const s = SPECS[typeKey]; const pal = typeKey === 'auto' ? AUTO_PAINTS : CAR_PAINTS;
+      const paint = typeKey === 'police' ? 0xf2f2f2 : typeKey === 'ambulance' ? 0xf4f4f4 : typeKey === 'taxi' ? (Math.random() < 0.5 ? 0xf2c200 : 0x111111) : (opts.paint ?? (s && s.paint) ?? pal[Math.floor(Math.random() * pal.length)]);
+      this.root = buildGlbCar(typeKey, paint); this.length = G.len; this.width = G.wid; this.glb = true;
+      if (G.far || G.lod) { // distance LOD: a ~2-3k triangle copy shown beyond ~35 m, sharing this car's paint
+        const farM = buildGlbCar(typeKey, paint, 'far'); const pm = this.root.userData.paintMat;
+        farM.traverse(o => { if (o.isMesh && o.material === farM.userData.paintMat) o.material = pm; });
+        this.nearKids = [...this.root.children]; this.farKids = [...farM.children]; for (const k of this.farKids) { k.visible = false; this.root.add(k); }
+        this.isFar = false;
+      }
+      if (s && s.lightbar) { // flashing roof bar
+        const bar = new THREE.Group(); bar.position.set(0, G.top + 0.03, -0.1); this.root.add(bar);
+        const mk = (c, x) => { const mm = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.11, 0.24), new THREE.MeshStandardMaterial({ color: c === 'r' ? 0x550000 : 0x000855, emissive: c === 'r' ? 0xff0000 : 0x1040ff, emissiveIntensity: 0.2 })); mm.position.x = x; bar.add(mm); return mm; };
+        bar.userData.r = mk('r', -0.27); bar.userData.b = mk('b', 0.27); this.bar = bar;
+      }
+    }
+    else if (typeKey === 'auto') { const mdl = models.auto; this.root = mdl.wrap.clone(true); this.length = 2.9; this.width = 1.42; }
     else { this.root = buildCar(typeKey, Q, opts.paint); const s = SPECS[typeKey]; this.length = s.L; this.width = s.W; this.bar = this.root.userData.bar; }
     this.wheels = []; this.root.traverse(o => { if (/^wheel/.test(o.name)) { o.userData.front = /front/.test(o.name); o.userData.baseRot = o.rotation.clone(); this.wheels.push(o); } });
     this.radius = this.width * 0.55;
+    if ((typeKey === 'scooter' || typeKey === 'bike') && riderFactory) { // two-wheelers carry a rider (real 3D person, driving pose)
+      try { const p = riderFactory(); p.root.position.set(0, typeKey === 'bike' ? 0.02 : -0.06, -0.28); p.root.scale.multiplyScalar(0.97); this.root.add(p.root); p.play('Driving_Loop', 0); this.rider = p; } catch (e) {}
+    }
     this.mass = T.mass; scene.add(this.root);
     this.pos = new THREE.Vector3(); this.heading = 0; this.vel = new THREE.Vector2(); this.angVel = 0;
     this.throttle = 0; this.brake = 0; this.steer = 0; this.handbrake = false; this.steerAngle = 0;
@@ -89,8 +170,8 @@ export class Vehicle {
         const px = Math.max(c.x0, Math.min(cx, c.x1)), pz = Math.max(c.z0, Math.min(cz, c.z1));
         let dx = cx - px, dz = cz - pz; let d = Math.hypot(dx, dz);
         if (d < r) {
-          if (d < 1e-4) { dx = 0; dz = 1; d = 1e-4; }
-          const nx = dx / d, nz = dz / d, pen = r - d;
+          let pen = r - d; if (d < 1e-4) { dx = 0; dz = 1; d = 1; pen = r * 0.5; } // centre inside a box: gentle push, not a 1/d explosion
+          const nx = dx / d, nz = dz / d;
           this.pos.x += nx * pen; this.pos.z += nz * pen;
           const vn = this.vel.x * nx + this.vel.y * nz;
           if (vn < 0) {
@@ -101,6 +182,10 @@ export class Vehicle {
         }
       }
     }
+  }
+  setLod(far) {
+    if (!this.farKids || far === this.isFar) return; this.isFar = far;
+    for (const k of this.nearKids) k.visible = !far; for (const k of this.farKids) k.visible = far;
   }
   sync(dt) {
     const gy = 0;
@@ -176,4 +261,10 @@ function makeAutoRickshaw(Q) {
   const mats = [], geos = []; for (const [mt, l] of byMat) { mats.push(mt); geos.push(mergeGeometries(l)); }
   const merged = new THREE.Mesh(mergeGeometries(geos, true), mats); merged.castShadow = true; merged.receiveShadow = true; root.add(merged);
   return { wrap: g, wheels: [], bodyColor: null, width: 1.42, height: 2.0, length: 2.9 };
+}
+
+// static template for instanced parked cars: { root, paintMat } (low-poly LOD when available)
+export function carTemplate(type, Q) {
+  if (models.glb && models.glb[type]) { const root = buildGlbCar(type, 0xffffff, (Q.id === 'low' || Q.id === 'medium') ? 'far' : true); return { root, paintMat: root.userData.paintMat, glb: true }; }
+  const v = new Vehicle(new THREE.Scene(), type, Q, { paint: 0xfdfdfd }); if (v.lights) v.root.remove(v.lights); return { root: v.root, paintMat: null, glb: false };
 }
