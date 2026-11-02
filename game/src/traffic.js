@@ -1,10 +1,11 @@
 
 import * as THREE from 'three';
+const wrapAng = (a) => Number.isFinite(a) ? a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI)) : 0;
 import { N, P, ROAD, ORIGIN, segX, segZ, interDegree } from './city.js';
 import { Vehicle, CAR_TYPES } from './vehicles.js';
 
 const STOP = ROAD / 2 + 5.0;
-const CIV = ['sedan','sedan','taxi','suv','hatch','auto','auto','van','suvlux','delivery','truck','sports','sedan','auto'];
+const CIV = ['sedan','scooter','taxi','suv','bike','hatch','auto','scooter','auto','van','scooter','suvlux','delivery','bike','truck','sports','sedan','scooter','auto'];
 export function lightState(i, j, t, axis) { // returns 'g' | 'a' | 'r'
   if (interDegree(i, j) < 3) return 'g';
   const c = ((t + ((i + j) % 2 ? 0 : 12)) % 24 + 24) % 24;
@@ -32,7 +33,7 @@ export class Traffic {
       const opts = []; if (segX(i, j)) opts.push(['x', j, i, 1]); if (segX(i - 1, j)) opts.push(['x', j, i - 1, -1]); if (segZ(i, j)) opts.push(['z', i, j, 1]); if (segZ(i, j - 1)) opts.push(['z', i, j - 1, -1]);
       if (!opts.length) continue;
       const [axis, line, seg, d0] = opts[Math.floor(Math.random() * opts.length)];
-      const d = Math.random() < 0.5 ? 1 : -1; const k = Math.random() < 0.6 ? 0 : 1;
+      const d = Math.random() < 0.5 ? 1 : -1; const k = 0; // outer lane = kerb parking
       const s0 = ORIGIN + seg * P + STOP + 2, s1 = ORIGIN + (seg + 1) * P - STOP - 2; const s = s0 + Math.random() * (s1 - s0);
       const lat = this.laneLat(axis, line, d, k);
       const x = axis === 'x' ? s : lat, z = axis === 'x' ? lat : s;
@@ -61,6 +62,10 @@ export class Traffic {
   update(dt, envT, player, peds) {
     this.t += dt; const lt = this.t; this.lastPlayerPos = player.pos;
     const all = this.cars.concat(player.vehicle ? [] : [], this.extra || []);
+    const lodR = this.Q.id === 'low' ? 22 : this.Q.id === 'medium' ? 32 : this.Q.id === 'high' ? 48 : 64;
+    for (const v of this.cars) if (v.rider) { const on = !!(v.ai && (v.ai.mode === 'lane' || v.ai.mode === 'turn')) && v.driver !== 'player' && v.root.visible; v.rider.root.visible = on;
+      if (on) { const dd = Math.abs(v.pos.x - player.pos.x) + Math.abs(v.pos.z - player.pos.z); v.riderAcc = (v.riderAcc || 0) + dt; if (dd < 120 && v.riderAcc > (dd > 50 ? 0.12 : 0.03)) { v.rider.mixer.update(v.riderAcc); v.riderAcc = 0; } } }
+    for (const v of this.cars) if (v.setLod) v.setLod(v.driver !== 'player' && Math.abs(v.pos.x - player.pos.x) + Math.abs(v.pos.z - player.pos.z) > lodR);
     for (const v of this.cars) {
       const a = v.ai; if (!a || v.driver === 'player') continue;
       if (a.mode === 'loose') { // knocked about: physics only, then recover
@@ -170,7 +175,7 @@ function bez(a, b, c, t) { const u = 1 - t; return new THREE.Vector2(u * u * a.x
 // Police chase driving (physics car steering toward the player)
 export function chaseDrive(v, target, dt, city) {
   const dx = target.x - v.pos.x, dz = target.z - v.pos.z; const dist = Math.hypot(dx, dz);
-  const want = Math.atan2(dx, dz); let diff = want - v.heading; while (diff > Math.PI) diff -= 2 * Math.PI; while (diff < -Math.PI) diff += 2 * Math.PI;
+  const want = Math.atan2(dx, dz); let diff = want - v.heading; diff = wrapAng(diff);
   const s = v.ai;
   if (s.reverseT > 0) { s.reverseT -= dt; v.throttle = -1; v.steer = -Math.sign(diff); v.brake = 0; return; }
   v.steer = THREE.MathUtils.clamp(diff * 2.2, -1, 1);
