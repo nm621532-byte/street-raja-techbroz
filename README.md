@@ -5,13 +5,29 @@ Bade shehar, highway, gaon, dhabe, police chase, missions aur poora **Character 
 
 > Made by **Tech Bro Z** — YouTube [@techbrozdeveloper](https://www.youtube.com/@techbrozdeveloper) · Instagram [@tech_bro_z_1](https://www.instagram.com/tech_bro_z_1)
 
-![Street Raja](docs/screenshot_1.jpg)
+![Street Raja — naya look](docs/after_street.jpg)
+
+### 🆕 Naya look (v0.1 update)
+| Pehle | Ab |
+|---|---|
+| ![pehle](docs/before_street.jpg) | ![ab](docs/after_street.jpg) |
+
+![traffic](docs/after_traffic.jpg)
+![bazaar](docs/after_bazaar.jpg)
+
+- **Asli 3D gaadiyan** — sedan, hatchback, SUV, taxi, police, ambulance, delivery van, auto-rickshaw (Grab3D CC0 models), har gaadi ka alag paint, ghoomte pahiye, door se halka LOD model
+- **Scooter aur bike traffic** — asli 3D scooter/motorcycle, upar baitha rider 🛵
+- **Asli 3D log** — player aur pedestrians real human models (Character Creator ke kapde/rang abhi bhi kaam karte hain)
+- **Sadak ki zindagi** — kinare khade scooter, dukaanon ke shelf, AC units, dish antenna, gamle, kooda-daan, thele, gaay 🐄
+- Low/Medium/High/Ultra pe objects ki doori aur shadows alag — phone pe smooth chale
+
+🎬 Gameplay clip: [docs/street-raja-gameplay.mp4](docs/street-raja-gameplay.mp4) (1080p wala release mein: [Street-Raja-gameplay-1080p.mp4](https://github.com/nm621532-byte/street-raja-techbroz/releases/download/v0.1/Street-Raja-gameplay-1080p.mp4))
 
 ## ⬇️ Download / Khelo
 
 | | Link |
 |---|---|
-| 📱 **Android APK** (HD graphics andar hi bundled, ~80 MB) | [Street-Raja-v0.1.apk](https://github.com/nm621532-byte/street-raja-techbroz/releases/download/v0.1/Street-Raja-v0.1.apk) |
+| 📱 **Android APK** (HD graphics andar hi bundled, ~150 MB) | [Street-Raja-v0.1.apk](https://github.com/nm621532-byte/street-raja-techbroz/releases/download/v0.1/Street-Raja-v0.1.apk) |
 | 🌐 **Browser mein khelo** (PC / phone) | https://street-raja.sites.tab.bot/ |
 | 🗜️ Web build zip | [Street-Raja-v0.1-web.zip](https://github.com/nm621532-byte/street-raja-techbroz/releases/download/v0.1/Street-Raja-v0.1-web.zip) |
 
@@ -39,7 +55,7 @@ Main menu → **CHARACTER BANAO**, ya Ratnapur mein **pink gol ghere** (kapde ki
 - Live 3D preview (drag karke ghumao), save hota hai aur game mein wahi character dikhta hai.
 
 ## 🎮 Gameplay
-- Paidal chalo/bhaago/jump/punch, kisi bhi gaadi mein baitho (sedan, SUV, sports, taxi, auto-rickshaw, police…)
+- Paidal chalo/bhaago/jump/punch, kisi bhi gaadi mein baitho (sedan, SUV, sports, taxi, auto-rickshaw, scooter, bike, police…)
 - Traffic signals, traffic AI, pedestrians, din-raat (day/night), baarish 🌧
 - Wanted level ★ + police chase, BUSTED / WASTED
 - 5 missions: Mithai Delivery, Auto Wala, Police Se Bhaago, Sonapur Parcel, Samudra Trip
@@ -49,7 +65,7 @@ Main menu → **CHARACTER BANAO**, ya Ratnapur mein **pink gol ghere** (kapde ki
 **PC controls:** WASD chalna · Shift run · Space jump/drift · F gaadi mein baitho/niklo · Click punch · Mouse camera · C camera · M map · R baarish · T time · H horn · Esc menu
 
 ## ⚙️ Graphics
-HDRI sky, real-time shadows, PBR textures (2K), bloom, ambient occlusion, SMAA, wet roads. Presets **Low / Medium / High / Ultra** — phone ke hisaab se apne aap select hota hai, aur dynamic resolution FPS ko ~30+ rakhta hai.
+HDRI sky, real-time shadows, PBR textures (2K, Ultra pe sadak aur footpath 4K), bloom, ambient occlusion, SMAA, wet roads. Presets **Low / Medium / High / Ultra** — phone ke hisaab se apne aap select hota hai, aur dynamic resolution FPS ko ~30+ rakhta hai.
 
 ## 🛠️ Khud build karo
 ```bash
@@ -58,10 +74,11 @@ npm install
 npx vite            # dev server
 npx vite build      # dist/ banega
 python3 tests/smoke.py   # smoke test (har publish se pehle)
+python3 tests/touch.py   # phone touch playtest (joystick, buttons, map, creator)
 ```
 Android APK: `android/` folder = Capacitor shell. `dist/` ko `android/www/` mein copy karo → `npx cap sync android` → `cd native && ./gradlew assembleRelease` (apna keystore `keystore.properties` mein).
 
-Note: HD textures/models (~75 MB) repo mein nahi daale (bade hain) — wo **web zip** release asset mein hain (`assets/` folder), use `game/public/assets/` mein rakh do.
+Note: HD textures/models (~160 MB) repo mein nahi daale (bade hain) — wo **web zip** release asset mein hain (`assets/` folder), use `game/public/assets/` mein rakh do.
 
 ## 📜 Credits
 Dekho [CREDITS.md](CREDITS.md). Saare assets CC0 / MIT. Saare naam aur jagah kaalpanik (fictional) hain.
