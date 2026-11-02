@@ -23,7 +23,7 @@ void main(){
   vec3 c = texture2D(tDay,uv).rgb*wts.x + texture2D(tSet,uv).rgb*wts.y + texture2D(tNight,uv).rgb*wts.z;
   float g = dot(c, vec3(0.299,0.587,0.114)); c = mix(c, vec3(g)*vec3(0.85,0.9,1.0), overcast*0.85);
   float s = max(dot(d, sunDir), 0.0);
-  c += sunCol * (pow(s, 1800.0)*60.0 + pow(s, 12.0)*0.25*(1.0-overcast)) * step(-0.05, sunDir.y);
+  c += sunCol * (pow(s, 1800.0)*60.0 + pow(s, 16.0)*0.14*(1.0-overcast)) * step(-0.05, sunDir.y);
   float h = 1.0 - smoothstep(0.0, 0.25 + haze*0.3, d.y);
   c = mix(c, fogCol, h*0.85);
   gl_FragColor = vec4(c*exposureSky, 1.0);
@@ -95,19 +95,19 @@ export class Env {
     const sunWarm = new THREE.Color().setRGB(1.0, 0.55 + 0.4*Math.min(1, elev*2.5), 0.25 + 0.65*Math.min(1, elev*2.2));
     u.sunCol.value.copy(sunWarm);
     u.overcast.value = this.overcast;
-    const fogDay = new THREE.Color(0xc4d3e2), fogSet = new THREE.Color(0xd8a47c), fogNight = new THREE.Color(0x0d1422), fogRain = new THREE.Color(0x8a939c);
+    const fogDay = new THREE.Color(0xa8bfd6), fogSet = new THREE.Color(0xd09a72), fogNight = new THREE.Color(0x070b16), fogRain = new THREE.Color(0x8a939c);
     const fc = new THREE.Color().setRGB(0,0,0).add(fogDay.clone().multiplyScalar(wd)).add(fogSet.clone().multiplyScalar(ws)).add(fogNight.clone().multiplyScalar(wn));
     fc.lerp(fogRain.clone().multiplyScalar(1 - nightish*0.85), this.rain*0.8);
     this.fog.color.copy(fc); u.fogCol.value.copy(fc);
-    this.fog.near = 30 - this.rain*20; this.fog.far = this.Q.fog * (1 - this.rain*0.55);
-    u.exposureSky.value = (1 - this.rain*0.4);
+    this.fog.near = 70 - this.rain*55; this.fog.far = this.Q.fog * 1.35 * (1 - this.rain*0.6);
+    u.exposureSky.value = (1 - this.rain*0.4) * (1 - nightish*0.55);
     // Lights
     const sunI = isDay ? (0.6 + 4.4*Math.min(1, elev*2.2)) * (1 - this.rain*0.75) : 0.25;
     this.sun.intensity = sunI;
     this.sun.color.copy(isDay ? sunWarm : new THREE.Color(0x8fa8ff));
     this.hemi.intensity = 0.08 + 0.12*(1-nightish);
     this.hemi.color.copy(fc).lerp(new THREE.Color(0xbfd8ff), 0.5);
-    this.scene.environmentIntensity = (0.3 + 0.32*(1-nightish) + this.rain*0.25) * (1 - this.rain*0.2);
+    this.scene.environmentIntensity = (0.16 + 0.42*(1-nightish) + this.rain*0.25) * (1 - this.rain*0.2);
     this.scene.backgroundIntensity = 1;
     // Shadow camera follows the focus point, snapped to texels to avoid shimmer
     if (focus) {
@@ -132,13 +132,14 @@ export class Env {
 
 // ---------- Post-processing ----------
 const GradeShader = {
-  uniforms: { tDiffuse:{value:null}, vig:{value:0.28}, sat:{value:1.08}, contrast:{value:1.05}, time:{value:0}, grain:{value:0.025}, tint:{value:new THREE.Vector3(1,1,1)}, damage:{value:0} },
+  uniforms: { tDiffuse:{value:null}, vig:{value:0.32}, sat:{value:1.18}, contrast:{value:1.13}, time:{value:0}, grain:{value:0.025}, tint:{value:new THREE.Vector3(1,1,1)}, damage:{value:0} },
   vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);} `,
   fragmentShader: `uniform sampler2D tDiffuse; uniform float vig, sat, contrast, time, grain, damage; uniform vec3 tint; varying vec2 vUv;
   float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233)))*43758.5453); }
   void main(){ vec4 c = texture2D(tDiffuse, vUv); vec3 col = c.rgb;
     float l = dot(col, vec3(0.2126,0.7152,0.0722)); col = mix(vec3(l), col, sat);
     col = (col-0.5)*contrast+0.5; col *= tint;
+    float L = dot(col, vec3(0.2126,0.7152,0.0722)); col *= mix(vec3(0.94,1.0,1.07), vec3(1.07,1.0,0.9), smoothstep(0.15,0.75,L)); // teal shadows, warm highlights
     vec2 q = vUv-0.5; float v = 1.0 - dot(q,q)*vig*2.2; col *= v;
     col = mix(col, vec3(l*1.2,0.05,0.05), damage*smoothstep(0.2,0.75,length(q)));
     col += (h(vUv*1000.0+time)-0.5)*grain;
@@ -157,7 +158,7 @@ export function makeComposer(renderer, scene, camera, Q, w, h) {
     try { gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 8 }); } catch(e) {}
     composer.addPass(gtao);
   }
-  if (Q.bloom) { bloom = new UnrealBloomPass(new THREE.Vector2(w/2, h/2), 0.22, 0.5, 0.95); composer.addPass(bloom); }
+  if (Q.bloom) { bloom = new UnrealBloomPass(new THREE.Vector2(w/2, h/2), 0.16, 0.45, 0.97); composer.addPass(bloom); }
   composer.addPass(new OutputPass());
   const grade = new ShaderPass(GradeShader); composer.addPass(grade);
   if (Q.aa === 'smaa') composer.addPass(new SMAAPass());
