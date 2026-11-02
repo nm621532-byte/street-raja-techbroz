@@ -1,5 +1,7 @@
 
 import * as THREE from 'three';
+import { loadProps, propModels, instanceProps, cullProps } from './glbprops.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GB, rng } from './geom.js';
 import { pbr } from './assets.js';
 import { makeFacade, makeWettable, facadeUniforms } from './facade.js';
@@ -12,6 +14,7 @@ import { makeFacade, makeWettable, facadeUniforms } from './facade.js';
 export const N = 9, ROAD = 14, SIDE = 4.5, BLOCK = 70, P = BLOCK + ROAD;
 export const ORIGIN = -N * P / 2;
 export const CURB = 0.16;
+const UPV = new THREE.Vector3(0, 1, 0);
 export const BX0 = -14, BX1 = 34, BZ0 = -22, BZ1 = 26;            // world = 48 x 48 blocks ≈ 4.0 x 4.0 km
 export const WORLD_MIN_X = ORIGIN + BX0 * P, WORLD_MAX_X = ORIGIN + BX1 * P, WORLD_MIN_Z = ORIGIN + BZ0 * P, WORLD_MAX_Z = ORIGIN + BZ1 * P;
 export const CH = 3, CHS = CH * P;                                 // chunk = 3x3 blocks
@@ -32,6 +35,16 @@ export const HIGHWAYS = [
   ['x', 4, -10, 0],    // west road to Chandpur & the hills
   ['z', 4, 9, 19],     // north road to Lakhanpur
 ];
+// Near-camera dithered fade: geometry that comes within ~3 m of the camera (awnings, signs, leaves) dissolves instead of filling the screen
+export function nearFade(mat, r0 = 1.0, r1 = 3.2) {
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => { if (prev) prev(sh, r);
+    sh.fragmentShader = sh.fragmentShader.replace('#include <clipping_planes_fragment>', `#include <clipping_planes_fragment>
+      { float dcam = length(vViewPosition); if (dcam < ${r1.toFixed(2)}) { float hh = fract(sin(dot(floor(gl_FragCoord.xy), vec2(12.9898, 78.233))) * 43758.5453); if (hh > smoothstep(${r0.toFixed(2)}, ${r1.toFixed(2)}, dcam)) discard; } }`); };
+  const pk = mat.customProgramCacheKey ? mat.customProgramCacheKey.bind(mat) : () => '';
+  mat.customProgramCacheKey = () => pk() + 'nf'; mat.needsUpdate = true; return mat;
+}
+
 function hash2(a, b, s = 0) { let h = (a * 374761393 + b * 668265263 + s * 2147483647) | 0; h = (h ^ (h >>> 13)) * 1274126177 | 0; return ((h ^ (h >>> 16)) >>> 0) / 4294967296; }
 export function regionAt(bx, bz) { for (const r of REGIONS) if (bx >= r.bx0 && bx <= r.bx1 && bz >= r.bz0 && bz <= r.bz1) return r; return null; }
 export function blockType(bx, bz) {
@@ -166,6 +179,7 @@ export class City {
     this.group = new THREE.Group(); scene.add(this.group);
     this.fullR = { low: 300, medium: 380, high: 470, ultra: 560 }[Q.id] || 400;
     this.lodR = Math.max(this.fullR + 150, Q.drawDist);
+    this.acYaw = 0;
     this.parkBlock = [2, 6]; this.policeBlock = [6, 2]; this.marketBlock = [4, 5];
   }
   roadX(i) { return ORIGIN + i * P; }
@@ -234,6 +248,7 @@ export class City {
   // ---------- one-time setup: materials, ground, sea, hills ----------
   async build() {
     const Q = this.Q, res = Q.tex;
+    const propsReady = loadProps(Q);
     const asphalt = makeWettable(pbr('clean_asphalt', res, { repeat: 1 }), 1, true);
     for (const k of ['map','normalMap','roughnessMap','aoMap']) asphalt[k].repeat.set(1/6, 1/6);
     const pavers = makeWettable(pbr('interlocking_concrete_pavers', res), 0.8);
@@ -255,11 +270,24 @@ export class City {
     const hayMat = new THREE.MeshStandardMaterial({ color: 0xc9a85a, roughness: 1 });
     const woodMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2b, roughness: 0.8 });
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x8c8c86, roughness: 0.8 });
-    this.mats = { asphalt, roadMat, pavers, curbMat, roofMat, grassMat, wallMats, markW, markY, signMat, awnMat, tankMat, acMat, treeMat, hayMat, woodMat, poleMat };
+    const shadeMat = new THREE.MeshStandardMaterial({ color: 0xcfc6b4, roughness: 0.92 }); const railMat = new THREE.MeshStandardMaterial({ color: 0x2a2b2d, roughness: 0.45, metalness: 0.6 }); const wacMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.5 });
+    nearFade(awnMat, 2.4, 3.2); nearFade(signMat, 2.4, 3.2); nearFade(treeMat, 0.8, 2.6);
+    this.mats = { shadeMat, railMat, wacMat, asphalt, roadMat, pavers, curbMat, roofMat, grassMat, wallMats, markW, markY, signMat, awnMat, tankMat, acMat, treeMat, hayMat, woodMat, poleMat };
     this.signMat = signMat; this.lightPoolTex = radialTex();
-    this.palmMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide });
+    this.palmMat = nearFade(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }), 0.8, 2.6);
     this.flagMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide });
     this.geos = {
+      shade: (() => { const g = new THREE.BoxGeometry(1, 0.09, 0.52); return g; })(),
+      balcSlab: (() => { const g = new THREE.BoxGeometry(1, 0.16, 1.1); g.translate(0, 0.08, 0); return g; })(),
+      balcRail: (() => { const parts = []; const B = (w, h, d, x, y, z) => { const g = new THREE.BoxGeometry(w, h, d); g.translate(x, y, z); parts.push(g); };
+        B(1, 0.05, 0.06, 0, 1.02, 0.52); B(0.05, 0.05, 1.1, -0.48, 1.02, 0); B(0.05, 0.05, 1.1, 0.48, 1.02, 0); B(1, 0.04, 0.04, 0, 0.55, 0.52);
+        for (let k = 0; k <= 9; k++) B(0.025, 0.86, 0.025, -0.45 + k * 0.1, 0.59, 0.52);
+        for (let k = 0; k < 4; k++) { B(0.025, 0.86, 0.025, -0.48, 0.59, 0.3 - k * 0.25); B(0.025, 0.86, 0.025, 0.48, 0.59, 0.3 - k * 0.25); }
+        return mergeGeometries(parts.map(g => g.toNonIndexed()), false); })(),
+      wac: (() => { const body = new THREE.BoxGeometry(0.86, 0.58, 0.32).toNonIndexed(); const fan = new THREE.CylinderGeometry(0.2, 0.2, 0.02, 16).rotateX(Math.PI / 2).translate(0.14, 0, 0.165).toNonIndexed();
+        const col = (g, c) => { const a = new Float32Array(g.attributes.position.count * 3); for (let i = 0; i < a.length; i += 3) { a[i] = c[0]; a[i + 1] = c[1]; a[i + 2] = c[2]; } g.setAttribute('color', new THREE.Float32BufferAttribute(a, 3)); g.deleteAttribute('uv'); return g; };
+        const br = new THREE.BoxGeometry(0.7, 0.04, 0.3).translate(0, -0.31, 0).toNonIndexed();
+        return mergeGeometries([col(body, [0.9, 0.9, 0.87]), col(fan, [0.12, 0.12, 0.13]), col(br, [0.3, 0.3, 0.3])], false); })(),
       palm: palmGeometry(), flag: (() => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, -0.22, 0, 0, 0.22, 0, -0.42, 0], 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute([1, 0, 0, 1, 0, 0, 1, 0, 0], 3)); return g; })(),
       tank: (() => { const g = new THREE.CylinderGeometry(0.62, 0.62, 1.3, 14); g.translate(0, 0.65, 0); return g; })(),
       ac: (() => { const g = new THREE.BoxGeometry(1.0, 0.7, 0.45); g.translate(0, 0.35, 0); return g; })(),
@@ -282,6 +310,7 @@ export class City {
       this.lampModel = { parts: [{ geometry: metal, material: metalMat, matrix: new THREE.Matrix4() }, { geometry: lens, material: lensMat, matrix: new THREE.Matrix4() }], armAxis: 0, H: 8.5, arm: 2.45 };
       this.lampMat = lensMat;
     }
+    await propsReady;
     // ---- ground: farmland / grass / sand everywhere (urban blocks & roads sit on top) ----
     const W = (BX1 - BX0) * P + 3000; const gGeo = new THREE.PlaneGeometry(W, W, 96, 96); gGeo.rotateX(-Math.PI / 2);
     const uv = gGeo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * W, uv.getY(i) * W);
@@ -349,6 +378,11 @@ export class City {
     todo.sort((a, b) => (a.lod - b.lod) * 1000 + a.d - b.d);
     const t0 = performance.now(); let n = 0;
     for (const w of todo) { if (!all && n > 0 && performance.now() - t0 > budgetMs) break; this.load(w.cx, w.cz, w.lod); n++; if (!all && n >= 2) break; }
+    const pr = this.propR || (this.propR = { low: 34, medium: 55, high: 85, ultra: 115 }[this.Q.id] || 55);
+    const lf = this._propFocus; if (all || !lf || Math.abs(lf.x - focus.x) + Math.abs(lf.z - focus.z) > 3 || n > 0) {
+      this._propFocus = { x: focus.x, z: focus.z };
+      for (const ch of this.chunks.values()) if (ch.props) { if (ch.dist(focus) < pr) { cullProps(ch.props, focus.x, focus.z, pr); ch.propsVis = true; } else if (ch.propsVis !== false) { ch.propsVis = false; for (const m of ch.props) m.visible = false; } }
+    }
     return todo.length - n;
   }
   unload(k) { const ch = this.chunks.get(k); if (!ch) return; this.group.remove(ch.group); ch.group.traverse(o => { if (o.isMesh && o.userData.own) o.geometry.dispose(); }); for (const c of ch.colliders) this.removeCollider(c);
@@ -365,7 +399,7 @@ export class City {
     const { cx, cz, lod } = ch; const M = this.mats; const full = lod === 0;
     const gb = { side: new GB(), curb: new GB(), roof: new GB(), grass: new GB(), road: new GB(), white: new GB(), yellow: new GB(), sign: new GB(), awn: new GB(), walls: M.wallMats.map(() => new GB(true)) };
     gb.awn.colors = [];
-    const inst = { tank: [], ac: [], tree: [[], [], []], hay: [], lamp: [], pole: [], palm: [], flag: [], flagC: [] };
+    const inst = { wire: [], shade: [], balc: [], wac: [], tank: [], ac: [], tree: [[], [], []], hay: [], lamp: [], pole: [], palm: [], flag: [], flagC: [], props: {} };
     const bx0 = cx * CH, bz0 = cz * CH;
     // roads (segments starting in this chunk + intersections in this chunk)
     for (let i = bx0; i < bx0 + CH; i++) for (let j = bz0; j < bz0 + CH; j++) {
@@ -386,10 +420,15 @@ export class City {
     if (!gb.awn.empty) { const g = gb.awn.build(); g.setAttribute('color', new THREE.Float32BufferAttribute(gb.awn.colors, 3)); const m = new THREE.Mesh(g, M.awnMat); m.castShadow = full; m.receiveShadow = true; m.userData.own = true; ch.group.add(m); }
     const I = (geo, mat, list, cast = true) => { if (!list.length) return; const im = new THREE.InstancedMesh(geo, mat, list.length); list.forEach((m, i) => im.setMatrixAt(i, m)); im.castShadow = cast; im.receiveShadow = true; im.computeBoundingSphere(); ch.group.add(im); return im; };
     I(this.geos.tank, M.tankMat, inst.tank, full); I(this.geos.ac, M.acMat, inst.ac, false);
+    const hiQ = this.Q.id === 'high' || this.Q.id === 'ultra';
+    if (inst.wire.length) { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(inst.wire, 3)); const ls = new THREE.LineSegments(g, this.wireMat || (this.wireMat = new THREE.LineBasicMaterial({ color: 0x141414, fog: true }))); ls.userData.own = true; ch.group.add(ls); }
+    I(this.geos.shade, M.shadeMat, inst.shade, hiQ); I(this.geos.balcSlab, M.shadeMat, inst.balc, hiQ); I(this.geos.balcRail, M.railMat, inst.balc, false); I(this.geos.wac, M.wacMat, inst.wac, false);
     I(this.geos.trees[0], M.treeMat, inst.tree.flat(), full);
     I(this.geos.palm, this.palmMat, inst.palm, full);
     if (inst.flag.length) { const im = I(this.geos.flag, this.flagMat, inst.flag, false); const col = new THREE.Color(); inst.flagC.forEach((c, i) => im.setColorAt(i, col.setHex(c))); im.instanceColor.needsUpdate = true; }
     I(this.geos.hay, M.hayMat, inst.hay); I(this.geos.poleBar, M.poleMat, inst.pole, full);
+    const big = { oak: 1, olive: 1, stall: 1, cow: 1, scooter: 1, moped: 1, motorcycle: 1, cart: 1, ubox: 1, powerbox: 1 };
+    ch.props = instanceProps(ch.group, inst.props, (n) => full && !!this.Q.shadows && hiQ && !!big[n]);
     if (inst.lamp.length) for (const part of this.lampModel.parts) { const im = new THREE.InstancedMesh(part.geometry, part.material, inst.lamp.length); const T = new THREE.Matrix4(); inst.lamp.forEach((m, i) => im.setMatrixAt(i, T.multiplyMatrices(m, part.matrix))); im.castShadow = full; im.receiveShadow = true; im.computeBoundingSphere(); ch.group.add(im); }
   }
   // ---------- roads ----------
@@ -408,7 +447,121 @@ export class City {
     if (segX(i - 1, j)) out.push([x - o - 3.0, z + o, Math.PI / 2, 'x', i, j]);
     return out;
   }
+
+
+  // tangled overhead electric/cable wires on wooden-ish poles along city streets (very desi)
+  addWires(inst, axis, line, idx, c, s0, s1, h) {
+    for (const side of [-1, 1]) {
+      const bt = axis === 'x' ? blockType(idx, side < 0 ? line - 1 : line) : blockType(side < 0 ? line - 1 : line, idx);
+      if (!isUrban(bt) || (bt === 'city' && hash2(idx, line, side + 77) < 0.45)) continue;
+      const off = h + 4.0, pts = [];
+      for (let s = s0 + 4; s <= s1 - 2; s += 22) pts.push(s);
+      const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), axis === 'z' ? Math.PI / 2 : 0);
+      for (const s of pts) { const x = axis === 'z' ? c + side * off : s, z = axis === 'z' ? s : c + side * off; inst.pole.push(new THREE.Matrix4().compose(new THREE.Vector3(x, CURB, z), q, new THREE.Vector3(1, 0.85, 1))); this.addCollider(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 9, 'pole'); }
+      const nW = 3 + Math.floor(hash2(idx, line, side) * 4);
+      for (let w = 0; w < nW; w++) {
+        const y0 = 6.1 + w * 0.32, sag = 0.5 + hash2(w, idx * 3 + line, side) * 0.9, lo = (w % 3 - 1) * 0.25;
+        for (let p = 0; p + 1 < pts.length; p++) {
+          const a = pts[p], b = pts[p + 1]; const seg = 8;
+          for (let k = 0; k < seg; k++) {
+            const t0 = k / seg, t1 = (k + 1) / seg;
+            const sA = a + (b - a) * t0, sB = a + (b - a) * t1, yA = y0 - sag * 4 * t0 * (1 - t0), yB = y0 - sag * 4 * t1 * (1 - t1);
+            const l = c + side * (off + lo);
+            if (axis === 'z') inst.wire.push(l, yA, sA, l, yB, sB); else inst.wire.push(sA, yA, l, sB, yB, l);
+          }
+        }
+      }
+      // a couple of cables sagging across the street
+      if (hash2(idx, line, side + 5) < 0.5 && pts.length) { const s = pts[Math.floor(pts.length / 2)]; const seg = 10;
+        for (let k = 0; k < seg; k++) { const t0 = k / seg, t1 = (k + 1) / seg; const lA = c + side * off - side * 2 * off * t0, lB = c + side * off - side * 2 * off * t1; const yA = 6.4 - 1.4 * 4 * t0 * (1 - t0), yB = 6.4 - 1.4 * 4 * t1 * (1 - t1);
+          if (axis === 'z') inst.wire.push(lA, yA, s, lB, yB, s); else inst.wire.push(s, yA, lA, s, yB, lB); } }
+    }
+  }
+
+  prop(inst, name, x, y, z, yaw = 0, sc = 1) {
+    if (!propModels[name]) return false;
+    (inst.props[name] = inst.props[name] || []).push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromAxisAngle(UPV, yaw), new THREE.Vector3(sc, sc, sc)));
+    return true;
+  }
+  // real CC0 street life on the pavements: rows of parked scooters/bikes, street trees, potted plants, bins, utility boxes,
+  // crates + gas cylinders outside shops, cows, and vendor stalls/carts in the bazaar town
+  dressSidewalk(inst, axis, line, idx, c, s0, s1, h) {
+    const Qid = this.Q.id; const dens = Qid === 'low' ? 0.45 : Qid === 'medium' ? 0.8 : 1;
+    for (const side of [-1, 1]) {
+      const bt = axis === 'x' ? blockType(idx, side < 0 ? line - 1 : line) : blockType(side < 0 ? line - 1 : line, idx);
+      if (!isUrban(bt)) continue; const town = bt === 'town';
+      const at = (off, s) => axis === 'x' ? [s, c + side * off] : [c + side * off, s];
+      const faceRoad = axis === 'x' ? (side < 0 ? 0 : Math.PI) : (side < 0 ? Math.PI / 2 : -Math.PI / 2);
+      const along = axis === 'x' ? Math.PI / 2 : 0;
+      const free = (x, z, rx, rz) => !(this.reserved || []).some(r => Math.abs(r.x - x) < r.rx + rx && Math.abs(r.z - z) < r.rz + rz) && !this.query(x, z, Math.max(rx, rz) + 1.5).some(cc => cc.tag !== 'pcar' && x + rx > cc.x0 && x - rx < cc.x1 && z + rz > cc.z0 && z - rz < cc.z1);
+      const box = (x, z, ax, rz, H, tag = 'prop') => { const [hx, hz] = axis === 'x' ? [ax, rz] : [rz, ax]; this.addCollider(x - hx, z - hz, x + hx, z + hz, H, tag); };
+      const salt = (axis === 'x' ? 0 : 500) + (side + 1) * 37;
+      // kerb zone
+      for (let s = s0 + 5, k = 0; s < s1 - 5; k++) {
+        const r = hash2(idx * 53 + k, line * 29 + salt, 61), r2 = hash2(k * 7 + idx, line + salt, 62);
+        const curbOff = h + 0.98;
+        if (r < (town ? 0.34 : 0.24) * dens) { // two-wheeler row, nose to the kerb
+          const n = 2 + Math.floor(r2 * (town ? 4 : 3)); const len = n * 0.86;
+          const [mx, mz] = at(curbOff, s + len / 2);
+          if (free(mx, mz, len / 2 + 0.2, 1.0)) {
+            for (let b = 0; b < n; b++) { const t = hash2(b + k * 5, idx + line, salt + 63); const nm = t < 0.62 ? 'scooter' : t < 0.84 ? 'moped' : 'motorcycle';
+              const [x, z] = at(curbOff, s + 0.43 + b * 0.86); this.prop(inst, nm, x, CURB, z, faceRoad + (t - 0.5) * 0.35 + (t > 0.62 ? Math.PI : 0)); }
+            box(mx, mz, len / 2 + 0.1, 1.0, 1.2);
+          }
+          s += len + 2.5; continue;
+        }
+        if (false) { const [x, z] = at(h + 1.0, s); if (free(x, z, 0.5, 0.5)) { const sc = 0.8 + r2 * 0.45; this.prop(inst, r2 < 0.5 ? 'oak' : 'olive', x, CURB, z, r2 * 6.28, sc); box(x, z, 0.35, 0.35, 6, 'tree'); } s += 7; continue; }
+        if (r > 0.985) { const [x, z] = at(h + 1.4, s + 1); if (free(x, z, 1.3, 0.6)) { this.prop(inst, 'cow', x, CURB, z, along + (r2 < 0.5 ? 0 : Math.PI) + (r2 - 0.5) * 0.6); box(x, z, 1.2, 0.5, 1.5); } s += 6; continue; }
+        s += 3.2;
+      }
+      // shop-front zone (against the buildings)
+      const wallOff = h + SIDE - 0.5;
+      for (let s = s0 + 4, k = 0; s < s1 - 4; k++) {
+        const r = hash2(idx * 41 + k, line * 23 + salt, 71), r2 = hash2(k * 11 + idx, line + salt, 72);
+        if (town && r < 0.3 * dens) { const [x, z] = at(h + SIDE - 1.45, s + 1.4); if (free(x, z, 1.4, 1.1)) { this.prop(inst, r2 < 0.65 ? 'stall' : 'cart', x, CURB, z, faceRoad + (r2 < 0.65 ? 0 : Math.PI / 2)); box(x, z, 1.4, 1.0, 2.5); } s += 4.2; continue; }
+        const [x, z] = at(wallOff, s);
+        if (r < 0.5 * dens && free(x, z, 0.45, 0.45)) {
+          if (r < 0.12) { this.prop(inst, 'pot', x, CURB, z, r2 * 6.28); const [x2, z2] = at(wallOff, s + 1.1); this.prop(inst, 'pot', x2, CURB, z2, r2 * 3); s += 1.1; }
+          else if (r < 0.19) this.prop(inst, 'planter', x, CURB, z, along);
+          else if (r < 0.26) this.prop(inst, 'trash', x, CURB, z, r2 * 6.28);
+          else if (r < 0.33) this.prop(inst, r2 < 0.5 ? 'ubox' : 'powerbox', x, CURB, z, faceRoad);
+          else if (r < 0.42) { this.prop(inst, 'trash', x, CURB, z, r2 * 6.28); const [x2, z2] = at(wallOff, s + 0.6); this.prop(inst, 'lpg', x2, CURB, z2, 0); }
+          else if (r < 0.5) { const [x2, z2] = at(wallOff - 0.1, s); this.prop(inst, 'lpg', x2, CURB, z2, r2); this.prop(inst, 'lpg', x2 + (axis === 'x' ? 0.42 : 0), CURB, z2 + (axis === 'z' ? 0.42 : 0), r2 * 2); }
+          box(x, z, 0.45, 0.4, 1.2);
+        }
+        s += 2.6 + r2 * 2;
+      }
+    }
+  }
+  // parked cars & autos along the kerb of city/town streets (drawn by ParkedFleet as instanced meshes; static colliders)
+  parkSlots(ch, axis, line, idx) {
+    const c = ORIGIN + line * P, s0 = ORIGIN + idx * P + ROAD / 2, off = ROAD / 2 - 1.45;
+    for (const side of [-1, 1]) {
+      const bt = axis === 'x' ? blockType(idx, side < 0 ? line - 1 : line) : blockType(side < 0 ? line - 1 : line, idx);
+      if (!isUrban(bt)) continue;
+      const dens = bt === 'town' ? 0.55 : 0.42;
+      for (let k = 0; k < 8; k++) {
+        const s = s0 + 11 + k * 6.6; if (s > s0 + BLOCK - 11) break;
+        const hsh = hash2(idx * 31 + k, line * 17 + (side + 1) * 7, axis === 'x' ? 5 : 9);
+        if (hsh > dens) continue;
+        const lat = c + side * off;
+        // heading follows the flow of the adjacent lane (left-hand traffic)
+        const heading = axis === 'x' ? (side < 0 ? Math.PI / 2 : -Math.PI / 2) : (side > 0 ? 0 : Math.PI);
+        const x = axis === 'x' ? s : lat, z = axis === 'x' ? lat : s;
+        const t = hash2(k * 13 + idx, line * 7 + side, 3);
+        const type = bt === 'town' ? (t < 0.45 ? 4 : t < 0.7 ? 1 : t < 0.85 ? 0 : 3) : (t < 0.3 ? 0 : t < 0.55 ? 1 : t < 0.7 ? 2 : t < 0.82 ? 3 : 4);
+        const hl = type === 4 ? 1.45 : 2.3, hw = type === 4 ? 0.72 : 0.95;
+        if ((this.reserved || []).some(r => Math.abs(r.x - x) < r.rx && Math.abs(r.z - z) < r.rz)) continue; // hero car / mission spots
+        const pa = { x, z, heading, type, col: hash2(idx + k * 3, line + side * 11, 21) };
+        // skip if something already stands there (bus stop, lamp, tree…)
+        if (this.query(x, z, 2.5).some(cc => x + hl > cc.x0 && x - hl < cc.x1 && z + hl > cc.z0 && z - hl < cc.z1 && cc.tag !== 'pcar')) continue;
+        ch.parked2 = ch.parked2 || []; ch.parked2.push(pa);
+        if (axis === 'x') this.addCollider(x - hl, z - hw, x + hl, z + hw, 1.5, 'pcar'); else this.addCollider(x - hw, z - hl, x + hw, z + hl, 1.5, 'pcar');
+      }
+    }
+  }
   buildSegment(gb, inst, ch, axis, line, idx, full) {
+    if (full) this.parkSlots(ch, axis, line, idx);
     const c = ORIGIN + line * P, h = ROAD / 2, y = 0.004, my = 0.012;
     const s0 = ORIGIN + idx * P + h, s1 = ORIGIN + (idx + 1) * P - h;
     const Q = (A, B, Cc, D) => gb.road.quad(A, B, Cc, D, [0, 1, 0], [A, B, Cc, D].map(p => [p[0], -p[2]]));
@@ -443,6 +596,8 @@ export class City {
       ch.lamps.push({ x, z, hx: x + ax * reach * 0.9, hy: 8.2, hz: z + az * reach * 0.9 });
       if (urbanSeg) this.addCollider(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 8, 'lamp');
     }
+    if (urbanSeg && full && this.Q.id !== 'low') this.addWires(inst, axis, line, idx, c, s0, s1, h);
+    if (urbanSeg && full) this.dressSidewalk(inst, axis, line, idx, c, s0, s1, h);
     if (!urbanSeg && full) { // electricity poles + roadside trees along highways (very desi)
       for (let s = s0 + 20; s <= s1; s += 40) { const off = h + 4.5; const x = axis === 'z' ? c - off : s, z = axis === 'z' ? s : c - off;
         inst.pole.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0, z), q.setFromEuler(e.set(0, axis === 'z' ? Math.PI / 2 : 0, 0)), new THREE.Vector3(1, 1, 1))); this.addCollider(x - 0.2, z - 0.2, x + 0.2, z + 0.2, 9, 'pole'); }
@@ -509,7 +664,7 @@ export class City {
       const H = floors * flH + 1.1 + CURB;
       const bayW = style === 1 ? 2.2 + R() * 0.8 : 2.8 + R() * 1.2;
       const seed = R(); const shop = dist !== 'low' || R() < 0.4;
-      this.addBuilding(gb.walls[mi], bx0, bz0, bx1, bz1, H, { seed, flH, bayW, style, shop });
+      this.addBuilding(gb.walls[mi], bx0, bz0, bx1, bz1, H, { seed, flH, bayW, style, shop, inst: full ? inst : null });
       gb.roof.box(bx0, H - 0.02, bz0, bx1, H, bz1, 1, { sides: false });
       this.addCollider(bx0, bz0, bx1, bz1, H, 'bld');
       if (full) {
@@ -565,10 +720,33 @@ export class City {
       const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
       // shop only on faces that look at a road (i.e. outward from block center): approximate by checking a point 6m out
       const ox = (a[0] + b[0]) / 2 + n[0] * 6, oz = (a[1] + b[1]) / 2 + n[2] * 6;
-      let outside = true; for (const c of this.query(ox, oz, 0.5)) if (ox > c.x0 && ox < c.x1 && oz > c.z0 && oz < c.z1) { outside = false; break; }
+      let outside = true; for (const c of this.query(ox, oz, 0.5)) if (c.tag === 'bld' && ox > c.x0 && ox < c.x1 && oz > c.z0 && oz < c.z1) { outside = false; break; }
       const shop = o.shop && outside ? 1 : 0;
       const info = [o.seed, o.flH, o.bayW, o.style], info2 = [H - CURB, shop, 0, L];
       gb.quad([a[0], CURB, a[1]], [b[0], CURB, b[1]], [b[0], H, b[1]], [a[0], H, a[1]], n, [[0, 0], [L, 0], [L, H - CURB], [0, H - CURB]], info, info2);
+      if (o.inst && o.style !== 1 && outside && this.Q.id !== 'low') this.facadeDetail(o.inst, a, b, n, L, H, o, faces.indexOf(faces.find(f => f[2] === n)));
+    }
+  }
+
+
+  // real 3D facade depth: concrete chajja sunshades over windows, balconies with railings, wall AC units
+  facadeDetail(inst, a, b, n, L, H, o, fi) {
+    const wr = o.style < 0.5 ? [0.26, 0.74, 0.30, 0.82] : [0.2, 0.8, 0.28, 0.85];
+    const floors = Math.min(9, Math.round((H - 1.1 - CURB) / o.flH)); const tx = (b[0] - a[0]) / L, tz = (b[1] - a[1]) / L;
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(n[0], n[2]));
+    const nb = Math.floor((L - 0.5) / o.bayW);
+    for (let k = 1; k < floors; k++) for (let bi = 0; bi < nb; bi++) {
+      if ((bi + 1) * o.bayW > L - 0.5 || bi * o.bayW < 0.5) continue;
+      const hsh = hash2(Math.floor(o.seed * 9999) + bi * 7, k * 13 + fi, 41);
+      const s = (bi + (wr[0] + wr[1]) / 2) * o.bayW; const px = a[0] + tx * s, pz = a[1] + tz * s; const yb = CURB + k * o.flH;
+      if (hsh < 0.16 && k < floors) { // balcony
+        const w = o.bayW * 0.86; inst.balc.push(new THREE.Matrix4().compose(new THREE.Vector3(px + n[0] * 0.55, yb, pz + n[2] * 0.55), q, new THREE.Vector3(w, 1, 1)));
+      } else {
+        const w = (wr[1] - wr[0]) * o.bayW + 0.3; inst.shade.push(new THREE.Matrix4().compose(new THREE.Vector3(px + n[0] * 0.26, yb + wr[3] * o.flH + 0.07, pz + n[2] * 0.26), q, new THREE.Vector3(w, 1, 1)));
+        if (hsh > 0.74 && k <= 4) { if (propModels.aircon) this.prop(inst, 'aircon', px + n[0] * 0.3 + tx * 0.25 * (hsh > 0.81 ? 1 : -1), yb + wr[2] * o.flH * 0.12, pz + n[2] * 0.3 + tz * 0.25 * (hsh > 0.81 ? 1 : -1), Math.atan2(n[0], n[2]) + this.acYaw);
+          else inst.wac.push(new THREE.Matrix4().compose(new THREE.Vector3(px + n[0] * 0.2, yb + wr[2] * o.flH * 0.42, pz + n[2] * 0.2), q, new THREE.Vector3(1, 1, 1))); }
+        else if (hsh < 0.19 && k === floors - 1 && propModels.dish) this.prop(inst, 'dish', px + n[0] * 0.5, yb + wr[3] * o.flH + 0.16, pz + n[2] * 0.5, Math.atan2(n[0], n[2]) + 0.5);
+      }
     }
   }
 
