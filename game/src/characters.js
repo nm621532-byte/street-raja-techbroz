@@ -139,6 +139,7 @@ function attachRigid(root, skinned, boneName, geo, mat) {
 }
 
 export function makePerson(o = {}) {
+  if (o.real && lib.real && lib.real[o.real]) return makeRealPerson(o);
   const female = !!o.female; const gender = female ? 'female' : 'male';
   const root = SkeletonUtils.clone(lib.base[gender]);
   const skinIdx = o.skinIdx ?? Math.floor(Math.random() * SKIN.length);
@@ -198,6 +199,45 @@ export function makePerson(o = {}) {
     if (p.cur) a.crossFadeFrom(p.cur, fade, false); a.play(); p.cur = a; return a;
   };
   p.dispose = () => { root.traverse(n => { if (n.isMesh && n.material && n.material.dispose) n.material.dispose(); }); mixer.stopAllAction(); root.removeFromParent(); };
+  p.play('Idle_Loop', 0);
+  return p;
+}
+
+// ---------- Realistic clothed humans (Grab3D CC0 rigged models) driven by the UAL clips via retargeting ----------
+import { makeRetargeter } from './retarget.js';
+export const REAL_KINDS = ['man', 'woman', 'businessman', 'farmer'];
+const REAL_FEMALE = { woman: true };
+lib.real = {};
+export async function loadRealPeople(Q) {
+  const hiTex = Q && (Q.id === 'high' || Q.id === 'ultra');
+  await Promise.all(REAL_KINDS.map(async (k) => {
+    try {
+      const [hero, lo] = await Promise.all([loadGLTF(`models/people/${k}.glb`), loadGLTF(`models/people/${k}_lo.glb`)]);
+      for (const g of [hero, lo]) g.scene.traverse(n => { if (n.isMesh) { n.castShadow = true; n.receiveShadow = false; n.frustumCulled = true; if (n.isSkinnedMesh) n.boundingSphere = PERSON_SPHERE.clone();
+        if (n.material) { n.material.side = THREE.FrontSide; n.material.envMapIntensity = 0.9; if (n.material.metalness != null) n.material.metalness = Math.min(n.material.metalness, 0.1); } } });
+      const rt = makeRetargeter(lib.base[REAL_FEMALE[k] ? 'female' : 'male'], hero.scene);
+      const clips = {};
+      for (const [name, c] of Object.entries(lib.clips)) { if (name === 'A_TPose') continue; clips[name] = rt(c, 30, true); }
+      lib.real[k] = { hero: hero.scene, lo: lo.scene, clips };
+    } catch (e) { console.warn('real person failed', k, e); }
+  }));
+}
+export function hasReal(k) { return !!(lib.real && lib.real[k]); }
+function makeRealPerson(o) {
+  const R = lib.real[o.real]; const root = SkeletonUtils.clone(o.npc ? R.lo : R.hero);
+  let skinned = null; root.traverse(n => { if (n.isSkinnedMesh && !skinned) skinned = n; });
+  const hh = o.height ?? 1, bw = [0.94, 1, 1.06, 1.12][o.build ?? 1] ?? 1;
+  root.scale.multiplyScalar(1); const wrap = new THREE.Group(); wrap.add(root); wrap.scale.set(bw * hh, hh, (0.5 + bw * 0.5) * hh);
+  if (o.tint) root.traverse(n => { if (n.isMesh) { n.material = n.material.clone(); n.material.color.multiply(new THREE.Color(o.tint)); } });
+  const mixer = new THREE.AnimationMixer(root); const actions = {};
+  for (const [k, c] of Object.entries(R.clips)) actions[k] = mixer.clipAction(c);
+  const p = { root: wrap, mixer, actions, cur: null, skinned, opts: o, female: !!REAL_FEMALE[o.real], acc: [], real: o.real };
+  p.play = (name, fade = 0.2, once = false, speed = 1) => {
+    const a = actions[name]; if (!a || p.cur === a) { if (a) a.timeScale = speed; return a; }
+    a.reset(); a.timeScale = speed; a.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat); a.clampWhenFinished = once; a.enabled = true;
+    if (p.cur) a.crossFadeFrom(p.cur, fade, false); a.play(); p.cur = a; return a;
+  };
+  p.dispose = () => { root.traverse(n => { if (n.isMesh && o.tint && n.material && n.material.dispose) n.material.dispose(); }); mixer.stopAllAction(); wrap.removeFromParent(); };
   p.play('Idle_Loop', 0);
   return p;
 }
