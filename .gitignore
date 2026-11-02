@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.jks
+keystore.properties
+build/
+.gradle/
+local.properties
+game/public/assets/

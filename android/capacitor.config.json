@@ -1,0 +1,13 @@
+{
+  "appId": "com.techbroz.streetraja",
+  "appName": "Street Raja",
+  "webDir": "www",
+  "android": {
+    "path": "native",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
