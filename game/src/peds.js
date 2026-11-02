@@ -1,22 +1,27 @@
 
 import * as THREE from 'three';
 import { N, SIDE, CURB } from './city.js';
-import { makePerson } from './characters.js';
+import { makePerson, hasReal } from './characters.js';
+import { avatarPerson, randomAvatar } from './avatar.js';
 
 // Pedestrians walk loops around block sidewalks; flee from danger; get knocked down by cars.
 export class Peds {
   constructor(scene, city, Q) { this.scene = scene; this.city = city; this.Q = Q; this.list = []; }
   spawn(count, near) { for (let i = 0; i < count; i++) this.add(near); }
   add(near, opts = {}) {
-    const p = makePerson(Object.assign({ npc: true }, opts)); this.scene.add(p.root);
+    const a = randomAvatar(); a.glasses = Math.random() < 0.15 ? a.glasses : 'none'; a.watch = 'none'; if (Math.random() < 0.6) a.cap = 'none';
+    if (Math.random() < 0.85) a.model = ['woman', 'businessman', 'farmer', 'man', 'woman', 'businessman', 'farmer'][Math.floor(Math.random() * 7)]; else a.model = 'custom';
+    const p = opts && Object.keys(opts).length ? makePerson(Object.assign({ npc: true }, opts)) : (a.model !== 'custom' && hasReal(a.model) ? makePerson({ real: a.model, npc: true, height: 0.95 + Math.random() * 0.1, tint: Math.random() < 0.5 ? null : [0xffffff, 0xe8e0ff, 0xfff0e0, 0xe0f0ff, 0xf0ffe8][Math.floor(Math.random() * 5)] }) : avatarPerson(a)); this.scene.add(p.root);
     const ped = { p, pos: new THREE.Vector3(), heading: 0, state: 'walk', t: 0, speed: 1.2 + Math.random() * 0.5, dir: Math.random() < 0.5 ? 1 : -1, blk: null, s: 0, hp: 100 };
     this.place(ped, near); this.list.push(ped); return ped;
   }
   place(ped, near) {
     const city = this.city; let blk, tries = 0;
+    if (!city.blocks.length) { ped.state = 'down'; ped.t = -5; ped.p.root.visible = false; return; }
+    const far = Math.random() < 0.6 ? 95 : 170; // most people close by, so streets around the player feel busy
     do { blk = city.blocks[Math.floor(Math.random() * city.blocks.length)]; tries++; }
-    while (near && tries < 60 && (Math.hypot((blk.x0 + blk.x1) / 2 - near.x, (blk.z0 + blk.z1) / 2 - near.z) > 170 || Math.hypot((blk.x0 + blk.x1) / 2 - near.x, (blk.z0 + blk.z1) / 2 - near.z) < 20));
-    ped.blk = blk; const inset = 1.6 + Math.random() * 1.6; ped.inset = inset;
+    while (near && tries < 80 && (Math.hypot((blk.x0 + blk.x1) / 2 - near.x, (blk.z0 + blk.z1) / 2 - near.z) > far || Math.hypot((blk.x0 + blk.x1) / 2 - near.x, (blk.z0 + blk.z1) / 2 - near.z) < 8));
+    ped.blk = blk; const inset = 2.1 + Math.random() * 1.2; ped.inset = inset;
     ped.per = 2 * ((blk.x1 - blk.x0 - 2 * inset) + (blk.z1 - blk.z0 - 2 * inset)); ped.s = Math.random() * ped.per;
     ped.state = 'walk'; ped.hp = 100; ped.p.root.visible = true; ped.t = 0; ped.p.play('Walk_Loop', 0.1);
     const q = this.pointAt(ped, ped.s); ped.pos.set(q.x, CURB, q.z);
