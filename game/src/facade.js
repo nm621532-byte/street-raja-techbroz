@@ -42,29 +42,39 @@ export function makeFacade(mat, texScale = 3.0) {
     float topDark = smoothstep(H - 1.2, H, f.y) * 0.15;
     wall *= grime * (1.0 - streak) * (1.0 - topDark);
     wall = mix(wall, wall * 0.7, ledge);
-    float curtain = step(0.55, rnd) * step(rnd, 0.9);
+    bool glassT = style > 0.5 && style < 1.5;
+    float curtain = glassT ? 0.0 : step(0.55, rnd) * step(rnd, 0.9);
     vec3 cCol = mix(vec3(0.55, 0.42, 0.28), vec3(0.6, 0.62, 0.66), step(0.5, rnd2)) * (0.6 + 0.4 * rnd2);
-    vec3 glass = style > 0.5 && style < 1.5 ? vec3(0.05, 0.08, 0.1) : vec3(0.025, 0.03, 0.035);
+    vec3 glass = glassT ? vec3(0.07, 0.11, 0.13) * (0.9 + 0.12 * hh(vec3(fl, floor(bay / 4.0), seed))) : vec3(0.025, 0.03, 0.035);
     // fake interior depth: darker near top of the window
     float depthS = smoothstep(wr.w, wr.w - 0.18, cy);
-    glass = mix(glass, cCol * 0.5, curtain * 0.8) * (0.6 + 0.4 * depthS);
-    float shutter = storefront && rnd2 > 0.72 ? 1.0 : 0.0;
+    glass = glassT ? glass : mix(glass, cCol * 0.5, curtain * 0.8) * (0.6 + 0.4 * depthS);
+    float shutter = storefront && rnd2 > 0.86 ? 1.0 : 0.0;
     vec3 shopIn = vec3(0.0);
     if (storefront) {
       if (shutter > 0.5) {
-        float rib = 0.82 + 0.18 * smoothstep(0.2, 0.5, abs(fract(f.y / 0.09) - 0.5));
+        float rib = 0.9 + 0.1 * smoothstep(0.15, 0.5, abs(fract(f.y / 0.16) - 0.5));
         glass = mix(vec3(0.42, 0.44, 0.46), vec3(0.25, 0.36, 0.5), step(0.86, rnd2)) * rib * (0.85 + 0.15 * rnd);
       } else {
-        float sy = fract((f.y - 0.25) / 0.48); float row = floor((f.y - 0.25) / 0.48);
-        float gx = floor(f.x / 0.22);
-        float g1 = hh(vec3(gx, row, seed * 13.0)), g2 = hh(vec3(gx * 1.7, row + 4.0, seed)), g3 = hh(vec3(gx, row * 2.3, seed + 7.0));
-        vec3 good = vec3(g1, g2, g3); good = mix(vec3(dot(good, vec3(0.33))), good, 0.9); good = clamp(good, 0.0, 1.0) * (0.25 + 0.45 * step(0.25, g2));
-        float hasGood = step(0.12, sy) * step(sy, 0.12 + 0.75 * (0.5 + 0.5 * g1)) * step(0.18, g3);
-        vec3 back = mix(vec3(0.75, 0.72, 0.62), vec3(0.55, 0.62, 0.7), step(0.5, rnd)) * 0.35;
-        shopIn = mix(back, good * 0.7, hasGood * 0.85);
-        shopIn = mix(shopIn, vec3(0.16, 0.1, 0.06), step(sy, 0.08));            // shelf boards
-        shopIn = mix(shopIn, vec3(0.32, 0.22, 0.14), step(cy, 0.28));          // counter
-        shopIn *= 0.75 + 0.25 * smoothstep(wr.w, wr.w - 0.3, cy);
+        float sy = fract((f.y - 0.25) / 0.55); float row = floor((f.y - 0.25) / 0.55);
+        float sec = floor(f.x / 0.6);
+        float pw = 0.15 + 0.16 * hh(vec3(sec, row, seed));
+        float gx = floor(f.x / pw); float gxf = fract(f.x / pw);
+        float g1 = hh(vec3(gx, row, seed * 13.0)), g2 = hh(vec3(gx * 1.7 + sec, row + 4.0, seed)), g3 = hh(vec3(gx, row * 2.3, seed + 7.0));
+        float t = fract(g2 + hh(vec3(sec, row, seed + 3.0)) * 0.35);
+        vec3 good = t < 0.15 ? vec3(0.72, 0.12, 0.1) : t < 0.3 ? vec3(0.88, 0.72, 0.16) : t < 0.45 ? vec3(0.14, 0.28, 0.66) : t < 0.6 ? vec3(0.86, 0.85, 0.8) : t < 0.72 ? vec3(0.14, 0.52, 0.24) : t < 0.85 ? vec3(0.9, 0.45, 0.1) : vec3(0.45, 0.3, 0.18);
+        good *= 0.8 + 0.35 * g1;
+        float ph = 0.55 + 0.4 * g1;
+        float hasGood = step(0.09, sy) * step(sy, 0.09 + 0.8 * ph) * step(0.05, g3) * step(0.05, gxf) * step(gxf, 0.96);
+        good *= 0.8 + 0.2 * smoothstep(0.0, 0.5, gxf) * smoothstep(1.0, 0.5, gxf);
+        vec3 back = mix(vec3(0.3, 0.26, 0.22), vec3(0.24, 0.27, 0.3), step(0.5, rnd));
+        shopIn = mix(back, good, hasGood);
+        shopIn = mix(shopIn, vec3(0.12, 0.08, 0.05), step(sy, 0.06));                 // shelf boards
+        shopIn = mix(shopIn, vec3(0.08, 0.07, 0.06), 1.0 - step(0.035, abs(fract(f.x / 1.2) - 0.5) - 0.465)); // uprights
+        shopIn = mix(shopIn, mix(vec3(0.42, 0.46, 0.5), vec3(0.3, 0.22, 0.15), step(0.5, rnd2)), step(cy, 0.26)); // counter
+        shopIn *= 0.75 + 0.45 * smoothstep(0.1, 0.85, cy);                               // ceiling tube lights
+        float roll = step(wr.w - 0.1, cy);                                              // rolled-up shutter box
+        shopIn = mix(shopIn, vec3(0.38, 0.39, 0.4) * (0.85 + 0.15 * step(0.5, fract(f.y / 0.05))), roll);
         glass = shopIn;
       }
     }
@@ -74,13 +84,13 @@ export function makeFacade(mat, texScale = 3.0) {
     diffuseColor.rgb = mix(diffuseColor.rgb, glass, win);
     diffuseColor.rgb = mix(diffuseColor.rgb, frameCol, mull);
     fWin = win * (1.0 - mull);
-    fRough = curtain > 0.5 ? 0.3 : 0.03;
-    fMetal = 0.2 * fWin;
+    fRough = curtain > 0.5 ? 0.3 : (glassT ? 0.06 : 0.03);
+    fMetal = (glassT ? 0.55 : 0.2) * fWin;
     float litChance = 0.08 + 0.3 * uNight;
     float lit = step(rnd2, litChance) * smoothstep(0.15, 0.6, uNight);
     vec3 warm = mix(vec3(1.0, 0.72, 0.42), vec3(0.85, 0.92, 1.0), step(0.7, rnd));
     fEmis = fWin * lit * warm * (curtain > 0.5 ? 0.7 : 1.3) * depthS;
-    if (storefront) { fEmis = shutter > 0.5 ? vec3(0.0) : fWin * shopIn * (0.35 + 1.5 * smoothstep(0.1, 0.7, uNight)) * mix(vec3(1.0, 0.86, 0.62), vec3(0.85, 0.95, 1.0), step(0.6, rnd)); fRough = shutter > 0.5 ? 0.45 : 0.6; fMetal = shutter * 0.6; }
+    if (storefront) { fEmis = shutter > 0.5 ? vec3(0.0) : fWin * shopIn * (0.4 + 1.5 * smoothstep(0.1, 0.7, uNight)) * mix(vec3(1.0, 0.86, 0.62), vec3(0.85, 0.95, 1.0), step(0.6, rnd)); fRough = shutter > 0.5 ? 0.45 : 0.22; fMetal = shutter > 0.5 ? 0.6 : 0.12; }
   }
   `)
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n normal = normalize(mix(normal, nonPerturbedNormal, fWin));')
