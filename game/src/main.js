@@ -1,11 +1,12 @@
 
 import * as THREE from 'three';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { PRESETS, detectPreset } from './quality.js';
-import { setAniso, progress } from './assets.js';
+import { setAniso, progress, loadGLTF, loadTex } from './assets.js';
 import { Env, makeComposer } from './render.js';
 import { City } from './city.js';
-import { loadCars, Vehicle } from './vehicles.js';
-import { loadPeople } from './characters.js';
+import { loadCars, Vehicle, setRiderFactory } from './vehicles.js';
+import { loadPeople, loadRealPeople, makePerson, hasReal, REAL_KINDS } from './characters.js';
 import { Traffic } from './traffic.js';
 import { Peds } from './peds.js';
 import { HUD } from './hud.js';
@@ -15,13 +16,14 @@ import { Game } from './game.js';
 import { Props } from './props.js';
 import { Rain, Headlights } from './effects.js';
 import { Creator } from './avatar.js';
+import { ParkedFleet } from './parked.js';
 
 const params = new URLSearchParams(location.search);
 const ui = document.getElementById('ui');
 const canvas = document.getElementById('c');
 const capture = params.has('capture');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance', preserveDrawingBuffer: capture });
-renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.85;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.0;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 const det = detectPreset(renderer);
@@ -47,13 +49,16 @@ const city = new City(scene, Q);
 const post = makeComposer(renderer, scene, camera, Q, W() * pr, H() * pr);
 const audio = new Audio();
 let game, input, hud, rain, heads, creator, paused = true;
-window.__game = { THREE, scene, camera, env, city, renderer, Q, det, Vehicle };
+window.__game = { SkeletonUtils, THREE, scene, camera, env, city, renderer, Q, det, Vehicle, loadGLTF, loadTex };
 
 async function init() {
   await env.load();
   await city.build();
   await Promise.all([loadCars(Q), loadPeople()]);
+  await loadRealPeople(Q);
+  setRiderFactory(() => { const ks = REAL_KINDS.filter(hasReal); const k = ks[Math.floor(Math.random() * ks.length)]; return makePerson({ real: k, npc: true, height: 0.96 + Math.random() * 0.08 }); });
   const props = new Props(scene, city, Q); await props.build(city.lightPoolTex); window.__game.props = props;
+  const parked = new ParkedFleet(scene, city, Q); window.__game.parked = parked;
   const traffic = new Traffic(scene, city, Q);
   const peds = new Peds(scene, city, Q);
   hud = new HUD(ui, city); input = new Input(ui);
@@ -69,13 +74,13 @@ async function init() {
   traffic.populate(Q.traffic, game.player.pos);
   peds.spawn(Q.peds, game.player.pos);
   Object.assign(window.__game, { game, traffic, peds, hud, input, post });
-  window.__view = (px, pz, cam, tgt, time) => { if (time != null) env.time = time; game.player.pos.set(px, game.city.groundAt(px, pz), pz); if (game.player.vehicle) game.player.vehicle.pos.set(px, 0, pz); city.stream(game.player.pos, 0, true); for (let i = 0; i < 3; i++) { traffic.update(0.03, env.time, game.player, peds); peds.update(0.03, game.player, camera.position); } window.__cam = { p: cam, t: tgt, fov: 55 }; game.updateCamera(0.016, input.read()); env.update(0.001, game.player.pos, true); city.update(env); window.__game.props.update(env, camera.position); traffic.updateLights(env.time); post.composer.render(0.016); return renderer.domElement.toDataURL('image/jpeg', 0.9); };
+  window.__view = (px, pz, cam, tgt, time) => { if (time != null) env.time = time; game.player.pos.set(px, game.city.groundAt(px, pz), pz); if (game.player.vehicle) game.player.vehicle.pos.set(px, 0, pz); city.stream(game.player.pos, 0, true); for (let i = 0; i < 3; i++) { traffic.update(0.03, env.time, game.player, peds); peds.update(0.03, game.player, camera.position); } window.__cam = { p: cam, t: tgt, fov: 55 }; game.updateCamera(0.016, input.read()); env.update(0.001, game.player.pos, true); city.update(env); window.__game.props.update(env, camera.position); window.__game.parked.update(dt, game.player.pos); traffic.updateLights(env.time); post.composer.render(0.016); return renderer.domElement.toDataURL('image/jpeg', 0.9); };
   hud.onTop(a => { if (a === 'pause') showMenu(); if (a === 'cam') input.pressed.KeyC = true; if (a === 'map') hud.openBigMap(game.player, game.blips()); });
   // test hook: advance the simulation without rendering
   window.__step = (n, over = {}, dt = 1 / 30) => { for (let i = 0; i < n; i++) { const inp = Object.assign(input.read(), over); game.update(dt, inp); game.traffic.update(dt, env.time, game.player, game.peds); game.peds.update(dt, game.player, camera.position); env.update(dt, game.player.pos); if (i % 10 === 0) city.stream(game.player.pos, 50); } };
   // recording hook: one deterministic frame (sim + render), used for the trailer clip
   window.__frame = (over = {}, dt = 1 / 30) => { const inp = Object.assign(input.read(), over); if (window.__auto) window.__auto(game, inp, dt); game.update(dt, inp); game.traffic.update(dt, env.time, game.player, game.peds); game.peds.update(dt, game.player, camera.position);
-    city.stream(game.player.pos, 40); env.update(dt, game.player.pos); city.update(env); window.__game.props.update(env, camera.position); rain.update(dt, camera, env.rain); heads.update(game.player.vehicle, env.night);
+    city.stream(game.player.pos, 40); env.update(dt, game.player.pos); city.update(env); window.__game.props.update(env, camera.position); window.__game.parked.update(dt, game.player.pos); rain.update(dt, camera, env.rain); heads.update(game.player.vehicle, env.night);
     const n = env.night, now = performance.now(); for (const v of game.traffic.cars) v.setNight(n, game.time); for (const v of game.police) v.setNight(n, game.time); post.composer.render(dt); };
   window.__androidBack = () => { if (creator.active) { creator.close(false); return; } if (hud.big) { hud.openBigMap(); return; } if (!paused) showMenu(); };
   document.getElementById('load').remove();
@@ -144,6 +149,7 @@ function loop() {
   env.update(paused ? 0 : dt, game.player.pos);
   city.update(env);
   if (window.__game.props) window.__game.props.update(env, camera.position);
+  if (window.__game.parked) window.__game.parked.update(dt, game.player.pos);
   rain.update(dt, camera, env.rain); heads.update(game.player.vehicle, env.night);
   const n = env.night; for (const v of game.traffic.cars) v.setNight(n, now / 1000); for (const v of game.police) v.setNight(n, now / 1000);
   post.composer.render(dt);
