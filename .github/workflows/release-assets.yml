@@ -1,6 +1,6 @@
 name: release-assets
 # Big files (APK with HD assets bundled, web zip) are too large for a normal git push from our tools,
-# so they are hosted in <25 MB parts and this workflow joins them, checks the sha256 and attaches
+# so they are hosted in 800 KB parts and this workflow joins them, checks the sha256 and attaches
 # them to the GitHub Release as real downloadable assets.
 on:
   release:
@@ -24,7 +24,7 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          BASE="https://street-raja-dl.sites.tab.bot/dl/${TAG}"
+          BASE="https://street-raja-files.sites.tab.bot/dl/${TAG}"
           curl -fsSL --retry 5 "$BASE/manifest.json" -o manifest.json
           cat manifest.json
           for row in $(jq -c '.files[]' manifest.json); do
