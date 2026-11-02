@@ -1,5 +1,6 @@
 
 import * as THREE from 'three';
+const wrapAng = (a) => Number.isFinite(a) ? a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI)) : 0;
 import { N, P, ROAD, ORIGIN, CURB, SIDE } from './city.js';
 import { Vehicle, CAR_TYPES } from './vehicles.js';
 import { makePerson } from './characters.js';
@@ -24,6 +25,7 @@ export class Game {
     if (save) { this.money = save.money || 0; this.done = save.done || {}; if (save.pos) pl.pos.set(save.pos[0], save.pos[1], save.pos[2]); if (save.time != null) this.env.time = save.time; }
     // a parked hero car next to the player
     this.hero = new Vehicle(this.scene, 'sports', this.Q, { paint: 0xb0121b }); this.hero.ai = { mode: 'empty' };
+    this.city.reserved = (this.city.reserved || []).concat([{ x: this.city.roadX(4) + 5.05, z: this.city.roadX(4) + 30 - 14, rx: 2.5, rz: 22 }]);
     this.hero.place(this.city.roadX(4) + 5.25 - 0.2, this.city.roadX(4) + 30, Math.PI); this.traffic.cars.push(this.hero);
     this.buildMissions();
     this.hud.set(this.state());
@@ -164,7 +166,7 @@ export class Game {
     const dir = camF.clone().multiplyScalar(inp.my).add(camR.clone().multiplyScalar(-inp.mx));
     let speed = 0;
     if (mag > 0.1 && pl.hitT < 0.6) {
-      dir.normalize(); const want = Math.atan2(dir.x, dir.z); let df = want - pl.heading; while (df > Math.PI) df -= 2 * Math.PI; while (df < -Math.PI) df += 2 * Math.PI;
+      dir.normalize(); const want = Math.atan2(dir.x, dir.z); let df = want - pl.heading; df = wrapAng(df);
       pl.heading += df * Math.min(1, dt * 10);
       speed = inp.sprint ? 6.8 : mag > 0.75 ? 3.9 : 1.6;
       pl.pos.x += Math.sin(pl.heading) * speed * dt; pl.pos.z += Math.cos(pl.heading) * speed * dt;
@@ -221,7 +223,7 @@ export class Game {
     if (pl.vehicle) {
       const v = pl.vehicle; const big = v.T.kind === 'truck' ? 1.4 : v.type === 'auto' ? 0.8 : 1;
       if (Math.abs(inp.lookX) > 0.5) this.camLookOverride = 2.0; this.camLookOverride -= dt;
-      if (this.camLookOverride <= 0) { let df = v.heading - this.camYaw; while (df > Math.PI) df -= 2 * Math.PI; while (df < -Math.PI) df += 2 * Math.PI; this.camYaw += df * Math.min(1, dt * (Math.abs(v.speed) > 2 ? 3.5 : 1.0)); this.camPitch += (0.22 - this.camPitch) * Math.min(1, dt * 2); }
+      if (this.camLookOverride <= 0) { let df = v.heading - this.camYaw; df = wrapAng(df); this.camYaw += df * Math.min(1, dt * (Math.abs(v.speed) > 2 ? 3.5 : 1.0)); this.camPitch += (0.22 - this.camPitch) * Math.min(1, dt * 2); }
       dist = [7.2, 10.5, 4.6][this.camMode] * big; height = [2.4, 3.6, 1.7][this.camMode] * big;
       target = new V3(v.pos.x, 1.15 * big, v.pos.z);
       cam.fov += ((62 + Math.min(18, Math.abs(v.speed) * 0.45)) - cam.fov) * Math.min(1, dt * 3); cam.updateProjectionMatrix();
