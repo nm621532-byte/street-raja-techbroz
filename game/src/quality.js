@@ -1,10 +1,10 @@
 
 // Graphics presets. Auto-pick by device, user can override in Settings.
 export const PRESETS = {
-  low:    { name:'Low',    pixelRatio:0.75, maxPR:1,   shadows:false, shadowSize:0,    shadowRange:0,   tex:512,  bloom:false, ao:false, aa:'none', fog:260, drawDist:320, traffic:10, peds:8,  lampLights:0, reflections:false, envProbe:false, cars:'basic', trees:0.4, rainDrops:1500 },
-  medium: { name:'Medium', pixelRatio:1.0,  maxPR:1.25,shadows:true,  shadowSize:1024, shadowRange:70,  tex:1024, bloom:true,  ao:false, aa:'fxaa', fog:420, drawDist:520, traffic:18, peds:14, lampLights:4, reflections:false, envProbe:false, cars:'physical', trees:0.7, rainDrops:3000 },
-  high:   { name:'High',   pixelRatio:1.0,  maxPR:1.75,shadows:true,  shadowSize:2048, shadowRange:110, tex:2048, bloom:true,  ao:true,  aa:'smaa', fog:600, drawDist:800, traffic:26, peds:22, lampLights:8, reflections:true,  envProbe:true,  cars:'physical', trees:1.0, rainDrops:5000 },
-  ultra:  { name:'Ultra',  pixelRatio:1.0,  maxPR:2.0, shadows:true,  shadowSize:4096, shadowRange:150, tex:2048, bloom:true,  ao:true,  aa:'smaa', fog:900, drawDist:1100,traffic:34, peds:30, lampLights:12,reflections:true,  envProbe:true,  cars:'physical', trees:1.0, rainDrops:8000 },
+  low:    { name:'Low',    pixelRatio:1.0,  maxPR:1.25,   shadows:false, shadowSize:0,    shadowRange:0,   tex:512,  bloom:false, ao:false, aa:'none', fog:260, drawDist:320, traffic:14, peds:8,  lampLights:0, reflections:false, envProbe:false, cars:'basic', trees:0.4, rainDrops:1500 },
+  medium: { name:'Medium', pixelRatio:1.0,  maxPR:1.5,shadows:true,  shadowSize:1024, shadowRange:70,  tex:1024, bloom:true,  ao:false, aa:'fxaa', fog:420, drawDist:520, traffic:28, peds:26, lampLights:4, reflections:false, envProbe:false, cars:'physical', trees:0.7, rainDrops:3000 },
+  high:   { name:'High',   pixelRatio:1.0,  maxPR:1.75,shadows:true,  shadowSize:2048, shadowRange:110, tex:2048, bloom:true,  ao:true,  aa:'smaa', fog:600, drawDist:800, traffic:36, peds:34, lampLights:8, reflections:true,  envProbe:true,  cars:'physical', trees:1.0, rainDrops:5000 },
+  ultra:  { name:'Ultra',  pixelRatio:1.0,  maxPR:2.0, shadows:true,  shadowSize:4096, shadowRange:150, tex:2048, bloom:true,  ao:true,  aa:'smaa', fog:900, drawDist:1100,traffic:40, peds:38, lampLights:12,reflections:true,  envProbe:true,  cars:'physical', trees:1.0, rainDrops:8000 },
 };
 export const ORDER = ['low','medium','high','ultra'];
 
